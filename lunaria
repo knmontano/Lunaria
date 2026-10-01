@@ -23,7 +23,7 @@
 #define COLOR_STAR_GOLD    RGB(255, 220, 140)
 #define COLOR_COIN_GOLD    RGB(255, 205, 75)
 
-// RPG Heroine Palette
+// Heroine Palette
 #define COLOR_CAPE         RGB(150, 45, 65)
 #define COLOR_ARMOR_STEEL  RGB(190, 195, 210)
 #define COLOR_TUNIC        RGB(65, 80, 125)
@@ -33,19 +33,19 @@
 #define COLOR_SHIELD_FACE  RGB(60, 95, 160)
 #define COLOR_SWORD_STEEL  RGB(230, 235, 250)
 
-// RPG Rival (Dark Champion) Palette
-#define COLOR_RIVAL_ARMOR  RGB(45, 35, 55)     // Obsidian Plate
-#define COLOR_RIVAL_CAPE   RGB(110, 25, 45)    // Bloodsilk Mantle
-#define COLOR_RIVAL_SKIN   RGB(210, 190, 205)  // Pale Moonlit Skin
-#define COLOR_RIVAL_HAIR   RGB(20, 15, 25)     // Midnight Black
-#define COLOR_RIVAL_EYES   RGB(255, 60, 100)   // Glowing Crimson
+// Rival Palette
+#define COLOR_RIVAL_ARMOR  RGB(45, 35, 55)
+#define COLOR_RIVAL_CAPE   RGB(110, 25, 45)
+#define COLOR_RIVAL_SKIN   RGB(210, 190, 205)
+#define COLOR_RIVAL_HAIR   RGB(20, 15, 25)
+#define COLOR_RIVAL_EYES   RGB(255, 60, 100)
 #define COLOR_MINION_BODY  RGB(140, 30, 60)
 
-// RPG Companion (Fairy Sylph) Palette
-#define COLOR_FAIRY_BODY   RGB(180, 235, 255)  // Glowing Cyan Robes
-#define COLOR_FAIRY_WING   RGB(220, 245, 255)  // Translucent Wings
-#define COLOR_FAIRY_HAIR   RGB(255, 215, 230)  // Pastel Pink Hair
-#define COLOR_FAIRY_GLOW   RGB(100, 200, 255)  // Starlight Aura
+// Companion Palette
+#define COLOR_FAIRY_BODY   RGB(180, 235, 255)
+#define COLOR_FAIRY_WING   RGB(220, 245, 255)
+#define COLOR_FAIRY_HAIR   RGB(255, 215, 230)
+#define COLOR_FAIRY_GLOW   RGB(100, 200, 255)
 
 #define COLOR_BTN_NORMAL   RGB(78, 46, 110)
 #define COLOR_BTN_BORDER   RGB(180, 140, 220)
@@ -64,6 +64,14 @@ struct Particle {
     int life = 20;
     COLORREF color = RGB(255, 255, 255);
     int size = 3;
+};
+
+struct DamageText {
+    float x = 0.0f;
+    float y = 0.0f;
+    std::wstring text;
+    int life = 35;
+    COLORREF color = RGB(255, 255, 255);
 };
 
 struct Projectile {
@@ -86,6 +94,7 @@ HFONT hTitleFont = nullptr;
 HFONT hHeaderFont = nullptr;
 HFONT hLogFont = nullptr;
 HFONT hEnemyTagFont = nullptr;
+HFONT hDamageFont = nullptr;
 
 struct Entity {
     float x = 120.0f;
@@ -148,6 +157,7 @@ Companion companion;
 std::vector<Minion> minions;
 std::vector<Projectile> projectiles;
 std::vector<Particle> particles;
+std::vector<DamageText> damageTexts;
 SpellRay eclipseRay;
 std::vector<std::wstring> logLines;
 
@@ -166,6 +176,16 @@ const int PLAY_TOP = ARENA_Y + 34;
 RECT btnStartRect = { 190, 270, 390, 316 };
 RECT btnRestartRect = { 190, 210, 390, 252 };
 RECT btnExitRect = { 230, 325, 350, 360 };
+
+void spawnDamageText(float x, float y, const std::wstring& str, COLORREF color) {
+    DamageText dt;
+    dt.x = x;
+    dt.y = y - 10.0f;
+    dt.text = str;
+    dt.life = 35;
+    dt.color = color;
+    damageTexts.push_back(dt);
+}
 
 void appendLog(const std::wstring& text) {
     std::wstringstream ss(text);
@@ -253,7 +273,7 @@ void spawnEnemy() {
         minions.push_back(m);
     }
 
-    appendLog(L"✦ [Lv." + std::to_wstring(enemy.level) + L"] " + enemy.name + L" enters with " + enemy.weaponName + L"!");
+    appendLog(L"✦ [Lv." + std::to_wstring(enemy.level) + L"] " + enemy.name + L" enters wielding " + enemy.weaponName + L"!");
     if (minionCount > 0) {
         appendLog(L" [!] Accompanied by " + std::to_wstring(minionCount) + L" Shadow Thrall minions!");
     }
@@ -299,13 +319,14 @@ void restartGame() {
     minions.clear();
     projectiles.clear();
     particles.clear();
+    damageTexts.clear();
     logLines.clear();
     eclipseRay.active = false;
     gameOver = false;
     isLevelUpPaused = false;
     
     appendLog(L"✧ ARENA OF THE STAR MAIDEN ✧");
-    appendLog(L"Controls: [W,A,S,D] Move | [SPACE] Slash | [Q] Nova | [R] Ray | [E] Elixir");
+    appendLog(L"Controls: [W,A,S,D] Move | [SPACE] Slash | [Q] Nova | [R] Ray | [E] Potion");
     spawnEnemy();
 }
 
@@ -356,7 +377,6 @@ void updateGamePhysics() {
     player.x = (std::max)(static_cast<float>(ARENA_X + player.radius + 6), (std::min)(static_cast<float>(ARENA_X + ARENA_W - player.radius - 6), player.x));
     player.y = (std::max)(static_cast<float>(PLAY_TOP + player.radius + 6), (std::min)(static_cast<float>(ARENA_Y + ARENA_H - player.radius - 6), player.y));
 
-    // Fairy Companion Movement & Animated Flutter
     if (companion.active) {
         companion.wingTimer += 0.35f;
         float cdx = (player.x - 28.0f * player.facing) - companion.x;
@@ -388,7 +408,6 @@ void updateGamePhysics() {
         }
     }
 
-    // Rival AI Movement & Facing
     float dx = player.x - enemy.x;
     float dy = player.y - enemy.y;
     float dist = std::sqrt(dx * dx + dy * dy);
@@ -421,6 +440,7 @@ void updateGamePhysics() {
             player.hp -= m.attack;
             player.hurtFlash = 6;
             m.attackCooldown = 50;
+            spawnDamageText(player.x, player.y, L"-" + std::to_wstring(m.attack), RGB(255, 90, 90));
             spawnParticles(player.x, player.y, 8, RGB(255, 60, 60), 2.0f, 10, 2);
             if (player.hp <= 0) {
                 player.hp = 0;
@@ -441,6 +461,7 @@ void updateGamePhysics() {
         if (std::sqrt(pdx * pdx + pdy * pdy) < enemy.radius + 6.0f) {
             enemy.hp -= projectiles[i].damage;
             enemy.hurtFlash = 8;
+            spawnDamageText(enemy.x, enemy.y, std::to_wstring(projectiles[i].damage), COLOR_FAIRY_GLOW);
             spawnParticles(enemy.x, enemy.y, 10, COLOR_FAIRY_GLOW, 2.5f, 10, 3);
             hit = true;
             if (enemy.hp <= 0) onEnemyDefeated();
@@ -454,6 +475,7 @@ void updateGamePhysics() {
                 if (std::sqrt(mdx * mdx + mdy * mdy) < m.radius + 6.0f) {
                     m.hp -= projectiles[i].damage;
                     m.hurtFlash = 8;
+                    spawnDamageText(m.x, m.y, std::to_wstring(projectiles[i].damage), COLOR_FAIRY_GLOW);
                     hit = true;
                     if (m.hp <= 0) {
                         m.active = false;
@@ -487,6 +509,13 @@ void updateGamePhysics() {
         else i++;
     }
 
+    for (size_t i = 0; i < damageTexts.size(); ) {
+        damageTexts[i].y -= 0.6f;
+        damageTexts[i].life--;
+        if (damageTexts[i].life <= 0) damageTexts.erase(damageTexts.begin() + i);
+        else i++;
+    }
+
     if (eclipseRay.active) {
         eclipseRay.timer--;
         if (eclipseRay.timer <= 0) eclipseRay.active = false;
@@ -498,6 +527,7 @@ void updateGamePhysics() {
         player.hurtFlash = 8;
         enemy.attackCooldown = 45;
 
+        spawnDamageText(player.x, player.y, L"-" + std::to_wstring(dmg), RGB(255, 60, 90));
         spawnParticles(player.x, player.y, 16, RGB(255, 60, 90), 2.8f, 15, 3);
         appendLog(L"[!] " + enemy.name + L" struck with " + enemy.weaponName + L" for " + std::to_wstring(dmg) + L" dmg!");
 
@@ -521,6 +551,7 @@ void playerAttack() {
         int dmg = player.attack + (std::rand() % 8);
         enemy.hp -= dmg;
         enemy.hurtFlash = 8;
+        spawnDamageText(enemy.x, enemy.y, std::to_wstring(dmg), COLOR_STAR_GOLD);
         spawnParticles(enemy.x, enemy.y, 18, COLOR_STAR_GOLD, 3.2f, 14, 4);
         appendLog(L"> Astral Blade hit " + enemy.name + L" for " + std::to_wstring(dmg) + L" dmg!");
         if (enemy.hp <= 0) onEnemyDefeated();
@@ -534,6 +565,7 @@ void playerAttack() {
             int dmg = player.attack + (std::rand() % 6);
             m.hp -= dmg;
             m.hurtFlash = 8;
+            spawnDamageText(m.x, m.y, std::to_wstring(dmg), COLOR_STAR_GOLD);
             if (m.hp <= 0) {
                 m.active = false;
                 player.gold += 8;
@@ -560,6 +592,7 @@ void playerCastNova() {
         int dmg = static_cast<int>(player.attack * 1.6f) + (std::rand() % 10);
         enemy.hp -= dmg;
         enemy.hurtFlash = 10;
+        spawnDamageText(enemy.x, enemy.y, std::to_wstring(dmg), RGB(255, 230, 100));
         spawnParticles(enemy.x, enemy.y, 25, RGB(255, 230, 100), 3.8f, 18, 4);
         appendLog(L"> Starlight Nova blasted foe for " + std::to_wstring(dmg) + L" holy dmg!");
         if (enemy.hp <= 0) onEnemyDefeated();
@@ -573,6 +606,7 @@ void playerCastNova() {
             int dmg = player.attack + 12;
             m.hp -= dmg;
             m.hurtFlash = 10;
+            spawnDamageText(m.x, m.y, std::to_wstring(dmg), RGB(255, 230, 100));
             if (m.hp <= 0) {
                 m.active = false;
                 player.gold += 8;
@@ -601,6 +635,7 @@ void playerCastRay() {
     int dmg = (player.attack * 2) + (std::rand() % 15);
     enemy.hp -= dmg;
     enemy.hurtFlash = 12;
+    spawnDamageText(enemy.x, enemy.y, std::to_wstring(dmg), RGB(220, 120, 255));
     spawnParticles(enemy.x, enemy.y, 30, RGB(220, 120, 255), 4.2f, 20, 4);
 
     appendLog(L"> Eclipse Ray pierced " + enemy.name + L" for " + std::to_wstring(dmg) + L" cosmic dmg!");
@@ -613,17 +648,16 @@ void playerDrinkPotion() {
     player.potions--;
     int healed = 35 + (player.level * 6);
     player.hp = (std::min)(player.maxHp, player.hp + healed);
+    spawnDamageText(player.x, player.y, L"+" + std::to_wstring(healed), RGB(120, 255, 180));
     spawnParticles(player.x, player.y, 24, RGB(120, 255, 180), 2.2f, 18, 3);
-    appendLog(L"> Quaffed Elixir! Restored " + std::to_wstring(healed) + L" HP.");
+    appendLog(L"> Quaffed Potion! Restored " + std::to_wstring(healed) + L" HP.");
 }
 
-// 1. RPG HEROINE SPRITE (Sword, Shield, Cape, Armor)
 void drawHeroine(HDC hdc, int cx, int cy, bool hurt) {
     int dir = player.facing;
     int bob = (int)(std::sin(player.walkCycle) * 2.0f);
     int legOffset = (int)(std::cos(player.walkCycle) * 3.0f);
 
-    // Draped Cloak
     HBRUSH capeB = CreateSolidBrush(hurt ? RGB(255, 90, 90) : COLOR_CAPE);
     SelectObject(hdc, capeB);
     SelectObject(hdc, GetStockObject(NULL_PEN));
@@ -636,14 +670,12 @@ void drawHeroine(HDC hdc, int cx, int cy, bool hurt) {
     Polygon(hdc, capePts, 4);
     DeleteObject(capeB);
 
-    // Boots
     HBRUSH bootB = CreateSolidBrush(RGB(55, 45, 40));
     SelectObject(hdc, bootB);
     Ellipse(hdc, cx - 7 + legOffset, cy + 14, cx - 1 + legOffset, cy + 22);
     Ellipse(hdc, cx + 1 - legOffset, cy + 14, cx + 7 - legOffset, cy + 22);
     DeleteObject(bootB);
 
-    // Tunic & Breastplate
     HBRUSH tunicB = CreateSolidBrush(COLOR_TUNIC);
     SelectObject(hdc, tunicB);
     Ellipse(hdc, cx - 9, cy - 6 + bob, cx + 9, cy + 14 + bob);
@@ -657,27 +689,23 @@ void drawHeroine(HDC hdc, int cx, int cy, bool hurt) {
     DeleteObject(armorB);
     DeleteObject(armorPen);
 
-    // Gold Belt
     HPEN beltPen = CreatePen(PS_SOLID, 2, COLOR_COIN_GOLD);
     SelectObject(hdc, beltPen);
     MoveToEx(hdc, cx - 7, cy + 8 + bob, NULL);
     LineTo(hdc, cx + 7, cy + 8 + bob);
     DeleteObject(beltPen);
 
-    // Head & Skin
     HBRUSH skinB = CreateSolidBrush(COLOR_SKIN);
     SelectObject(hdc, skinB);
     Ellipse(hdc, cx - 7, cy - 16 + bob, cx + 7, cy - 2 + bob);
     DeleteObject(skinB);
 
-    // Golden Hair & Ponytail
     HBRUSH hairB = CreateSolidBrush(COLOR_HAIR);
     SelectObject(hdc, hairB);
     Ellipse(hdc, cx - 8, cy - 18 + bob, cx + 8, cy - 8 + bob);
     Ellipse(hdc, cx - (9 * dir), cy - 16 + bob, cx - (3 * dir), cy - 6 + bob);
     DeleteObject(hairB);
 
-    // Buckler Shield
     int shX = cx - (12 * dir);
     int shY = cy + 2 + bob;
     HBRUSH shWoodB = CreateSolidBrush(COLOR_SHIELD_WOOD);
@@ -693,7 +721,6 @@ void drawHeroine(HDC hdc, int cx, int cy, bool hurt) {
     Ellipse(hdc, shX - 3, shY - 4, shX + 3, shY + 4);
     DeleteObject(shFaceB);
 
-    // Steel Sword
     int swX = cx + (10 * dir);
     int swY = cy + 4 + bob;
     HPEN guardPen = CreatePen(PS_SOLID, 2, COLOR_COIN_GOLD);
@@ -709,36 +736,29 @@ void drawHeroine(HDC hdc, int cx, int cy, bool hurt) {
     DeleteObject(bladePen);
 }
 
-// 2. RPG COMPANION SPRITE (Arcane Fairy / Starlight Sylph with Fluttering Wings)
 void drawCompanion(HDC hdc, int cx, int cy) {
     int flutter = (int)(std::sin(companion.wingTimer) * 6.0f);
 
-    // Starlight Aura
     HBRUSH glowB = CreateSolidBrush(COLOR_FAIRY_GLOW);
     SelectObject(hdc, glowB);
     SelectObject(hdc, GetStockObject(NULL_PEN));
     Ellipse(hdc, cx - 14, cy - 14, cx + 14, cy + 14);
     DeleteObject(glowB);
 
-    // Translucent Fairy Wings (Fluttering)
     HBRUSH wingB = CreateSolidBrush(COLOR_FAIRY_WING);
     SelectObject(hdc, wingB);
     HPEN wingPen = CreatePen(PS_SOLID, 1, RGB(180, 230, 255));
     SelectObject(hdc, wingPen);
-    // Left Wing
     Ellipse(hdc, cx - 18, cy - 12 - flutter, cx - 3, cy + 2);
-    // Right Wing
     Ellipse(hdc, cx + 3, cy - 12 + flutter, cx + 18, cy + 2);
     DeleteObject(wingB);
     DeleteObject(wingPen);
 
-    // Fairy Dress / Body
     HBRUSH bodyB = CreateSolidBrush(COLOR_FAIRY_BODY);
     SelectObject(hdc, bodyB);
     Ellipse(hdc, cx - 5, cy - 4, cx + 5, cy + 8);
     DeleteObject(bodyB);
 
-    // Head & Pastel Hair
     HBRUSH skinB = CreateSolidBrush(COLOR_SKIN);
     SelectObject(hdc, skinB);
     Ellipse(hdc, cx - 4, cy - 11, cx + 4, cy - 3);
@@ -749,7 +769,6 @@ void drawCompanion(HDC hdc, int cx, int cy) {
     Ellipse(hdc, cx - 5, cy - 13, cx + 5, cy - 7);
     DeleteObject(hairB);
 
-    // Halo / Mini Tiara
     HPEN haloPen = CreatePen(PS_SOLID, 1, COLOR_STAR_GOLD);
     SelectObject(hdc, haloPen);
     SelectObject(hdc, GetStockObject(NULL_BRUSH));
@@ -757,20 +776,17 @@ void drawCompanion(HDC hdc, int cx, int cy) {
     DeleteObject(haloPen);
 }
 
-// 3. RPG RIVAL SPRITE (Dark Champion: Mantle, Obsidian Pauldrons, Horned Helm)
 void drawRival(HDC hdc, int cx, int cy, bool hurt) {
     int dir = enemy.facing;
     int bob = (int)(std::sin(enemy.walkCycle) * 2.0f);
     int legOffset = (int)(std::cos(enemy.walkCycle) * 3.0f);
 
-    // 1. Dark Shadow Mist
     HBRUSH mistB = CreateSolidBrush(hurt ? RGB(255, 80, 80) : RGB(50, 20, 40));
     SelectObject(hdc, mistB);
     SelectObject(hdc, GetStockObject(NULL_PEN));
     Ellipse(hdc, cx - 22, cy - 22, cx + 22, cy + 22);
     DeleteObject(mistB);
 
-    // 2. Bloodsilk Mantle (Flowing Cape)
     HBRUSH capeB = CreateSolidBrush(COLOR_RIVAL_CAPE);
     SelectObject(hdc, capeB);
     POINT capePts[4] = {
@@ -782,27 +798,22 @@ void drawRival(HDC hdc, int cx, int cy, bool hurt) {
     Polygon(hdc, capePts, 4);
     DeleteObject(capeB);
 
-    // 3. Obsidian Sabatons (Boots)
     HBRUSH bootB = CreateSolidBrush(RGB(30, 20, 35));
     SelectObject(hdc, bootB);
     Ellipse(hdc, cx - 8 + legOffset, cy + 14, cx - 1 + legOffset, cy + 22);
     Ellipse(hdc, cx + 1 - legOffset, cy + 14, cx + 8 - legOffset, cy + 22);
     DeleteObject(bootB);
 
-    // 4. Obsidian Plate Armor & Spiked Pauldrons (Shoulders)
     HBRUSH armorB = CreateSolidBrush(COLOR_RIVAL_ARMOR);
     SelectObject(hdc, armorB);
     HPEN armorP = CreatePen(PS_SOLID, 1, RGB(160, 60, 95));
     SelectObject(hdc, armorP);
     Ellipse(hdc, cx - 9, cy - 6 + bob, cx + 9, cy + 14 + bob);
-
-    // Spiked Pauldrons
     Ellipse(hdc, cx - 14, cy - 8 + bob, cx - 6, cy + 2 + bob);
     Ellipse(hdc, cx + 6, cy - 8 + bob, cx + 14, cy + 2 + bob);
     DeleteObject(armorB);
     DeleteObject(armorP);
 
-    // 5. Pale Head & Shadow Hair
     HBRUSH skinB = CreateSolidBrush(COLOR_RIVAL_SKIN);
     SelectObject(hdc, skinB);
     Ellipse(hdc, cx - 7, cy - 16 + bob, cx + 7, cy - 2 + bob);
@@ -813,7 +824,6 @@ void drawRival(HDC hdc, int cx, int cy, bool hurt) {
     Ellipse(hdc, cx - 8, cy - 18 + bob, cx + 8, cy - 7 + bob);
     DeleteObject(hairB);
 
-    // 6. Jagged Horns / Crown
     HPEN hornP = CreatePen(PS_SOLID, 2, RGB(220, 60, 100));
     SelectObject(hdc, hornP);
     MoveToEx(hdc, cx - 6, cy - 15 + bob, NULL);
@@ -822,7 +832,6 @@ void drawRival(HDC hdc, int cx, int cy, bool hurt) {
     LineTo(hdc, cx + 12, cy - 26 + bob);
     DeleteObject(hornP);
 
-    // 7. Glowing Ruby Eyes
     HBRUSH eyeB = CreateSolidBrush(COLOR_RIVAL_EYES);
     SelectObject(hdc, eyeB);
     int eyeDir = (dir == 1) ? 1 : -3;
@@ -830,10 +839,8 @@ void drawRival(HDC hdc, int cx, int cy, bool hurt) {
     Ellipse(hdc, cx + eyeDir + 1, cy - 10 + bob, cx + eyeDir + 3, cy - 7 + bob);
     DeleteObject(eyeB);
 
-    // 8. Equiped Rival Weapon in Hand
     int wepX = cx + (12 * dir);
     int wepY = cy + 4 + bob;
-
     if (enemy.weaponType == WEAPON_SCYTHE) {
         HPEN scytheP = CreatePen(PS_SOLID, 2, RGB(180, 170, 210));
         SelectObject(hdc, scytheP);
@@ -849,12 +856,11 @@ void drawRival(HDC hdc, int cx, int cy, bool hurt) {
         MoveToEx(hdc, wepX + (6 * dir), wepY - 18, NULL);
         LineTo(hdc, wepX + (14 * dir), wepY - 10);
         DeleteObject(cleaverP);
-    } else { // SPEAR
+    } else {
         HPEN spearP = CreatePen(PS_SOLID, 2, RGB(230, 235, 250));
         SelectObject(hdc, spearP);
         MoveToEx(hdc, wepX - (4 * dir), wepY + 16, NULL);
         LineTo(hdc, wepX + (10 * dir), wepY - 26);
-        // Spearhead red tassel
         HPEN tasselP = CreatePen(PS_SOLID, 2, RGB(255, 60, 60));
         SelectObject(hdc, tasselP);
         MoveToEx(hdc, wepX + (6 * dir), wepY - 18, NULL);
@@ -863,11 +869,22 @@ void drawRival(HDC hdc, int cx, int cy, bool hurt) {
         DeleteObject(spearP);
     }
 
-    // Overhead Tag Info
-    int tagX = cx - 45;
-    int tagY = cy - 44;
+    // Dynamic, Unclipped Floating Nameplate & Health Bar
+    SelectObject(hdc, hEnemyTagFont);
+    std::wstring tagText = L"[Lv." + std::to_wstring(enemy.level) + L"] " + enemy.name;
+    
+    SIZE textSize;
+    GetTextExtentPoint32W(hdc, tagText.c_str(), static_cast<int>(tagText.length()), &textSize);
+    int tagW = (std::max)(static_cast<int>(textSize.cx + 16), 110);
+    int tagH = 26;
 
-    RECT tagBgRc = { tagX - 4, tagY - 2, tagX + 94, tagY + 24 };
+    int tagX = cx - (tagW / 2);
+    int tagY = cy - 48;
+
+    tagX = (std::max)(ARENA_X + 6, (std::min)(ARENA_X + ARENA_W - tagW - 6, tagX));
+    tagY = (std::max)(PLAY_TOP + 4, tagY);
+
+    RECT tagBgRc = { tagX, tagY, tagX + tagW, tagY + tagH };
     HBRUSH tagBgB = CreateSolidBrush(RGB(24, 14, 38));
     FillRect(hdc, &tagBgRc, tagBgB);
     DeleteObject(tagBgB);
@@ -879,22 +896,21 @@ void drawRival(HDC hdc, int cx, int cy, bool hurt) {
     SelectObject(hdc, oldTagP);
     DeleteObject(tagBorderP);
 
-    SelectObject(hdc, hEnemyTagFont);
     SetTextColor(hdc, RGB(255, 140, 180));
-    std::wstring tagText = L"[Lv." + std::to_wstring(enemy.level) + L"] " + enemy.name.substr(0, 10);
-    TextOutW(hdc, tagX, tagY, tagText.c_str(), tagText.length());
+    RECT textRc = { tagX + 6, tagY + 2, tagX + tagW - 6, tagY + 14 };
+    DrawTextW(hdc, tagText.c_str(), -1, &textRc, DT_CENTER | DT_SINGLELINE);
 
-    int barW = 86;
+    int barW = tagW - 12;
     int barH = 5;
-    int barX = tagX;
-    int barY = tagY + 14;
+    int barX = tagX + 6;
+    int barY = tagY + 16;
 
     HBRUSH barBgB = CreateSolidBrush(RGB(40, 20, 35));
     RECT barBgRc = { barX, barY, barX + barW, barY + barH };
     FillRect(hdc, &barBgRc, barBgB);
     DeleteObject(barBgB);
 
-    float hpPct = std::max(0.0f, std::min(1.0f, (float)enemy.hp / (float)enemy.maxHp));
+    float hpPct = (std::max)(0.0f, (std::min)(1.0f, (float)enemy.hp / (float)enemy.maxHp));
     int fillW = (int)(barW * hpPct);
     if (fillW > 0) {
         HBRUSH fillB = CreateSolidBrush(RGB(255, 60, 90));
@@ -949,6 +965,10 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             CLEARTYPE_QUALITY, VARIABLE_PITCH, L"Segoe UI");
 
         hEnemyTagFont = CreateFontW(11, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+            CLEARTYPE_QUALITY, VARIABLE_PITCH, L"Segoe UI");
+
+        hDamageFont = CreateFontW(13, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
             DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
             CLEARTYPE_QUALITY, VARIABLE_PITCH, L"Segoe UI");
 
@@ -1014,7 +1034,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                     player.gold -= 30;
                     player.armorTier++;
                     player.maxHp += 30;
-                    player.hp = player.maxHp;
+                    player.hp += 30; // Clean boost without giving full free heal
                     appendLog(L"> Enhanced Robes (+30 Max HP)!");
                 } else appendLog(L"[!] Need 30g for Robes!");
             } else if (wParam == '3') {
@@ -1159,6 +1179,13 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                     DeleteObject(pBrush);
                 }
 
+                // Render Floating Damage Numbers
+                SelectObject(hdcMem, hDamageFont);
+                for (const auto& dt : damageTexts) {
+                    SetTextColor(hdcMem, dt.color);
+                    TextOutW(hdcMem, static_cast<int>(dt.x - 8), static_cast<int>(dt.y), dt.text.c_str(), dt.text.length());
+                }
+
                 RECT hudBgRc = { ARENA_X + 2, ARENA_Y + 2, ARENA_X + ARENA_W - 2, PLAY_TOP };
                 HBRUSH hudBgB = CreateSolidBrush(RGB(20, 14, 34));
                 FillRect(hdcMem, &hudBgRc, hudBgB);
@@ -1274,6 +1301,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         DeleteObject(hMainFont);
         DeleteObject(hHeaderFont);
         DeleteObject(hEnemyTagFont);
+        DeleteObject(hDamageFont);
         DeleteObject(hTitleFont);
         DeleteObject(hLogFont);
         PostQuitMessage(0);
