@@ -1,0 +1,1321 @@
+#ifndef UNICODE
+#define UNICODE
+#endif
+
+#include <windows.h>
+#include <string>
+#include <vector>
+#include <cstdlib>
+#include <ctime>
+#include <sstream>
+#include <algorithm>
+#include <cmath>
+
+#define TIMER_GAME_LOOP 1
+
+// Color Palette
+#define COLOR_WINDOW_BG    RGB(18, 12, 28)
+#define COLOR_ARENA_FLOOR  RGB(26, 18, 42)
+#define COLOR_ARENA_GRID   RGB(40, 28, 62)
+#define COLOR_TEXT_HEADER  RGB(255, 180, 215)
+#define COLOR_TEXT_BODY    RGB(245, 235, 255)
+#define COLOR_TEXT_LOG     RGB(210, 195, 255)
+#define COLOR_STAR_GOLD    RGB(255, 220, 140)
+#define COLOR_COIN_GOLD    RGB(255, 205, 75)
+
+// RPG Heroine Palette
+#define COLOR_CAPE         RGB(150, 45, 65)
+#define COLOR_ARMOR_STEEL  RGB(190, 195, 210)
+#define COLOR_TUNIC        RGB(65, 80, 125)
+#define COLOR_SKIN         RGB(255, 220, 195)
+#define COLOR_HAIR         RGB(245, 205, 120)
+#define COLOR_SHIELD_WOOD  RGB(110, 70, 45)
+#define COLOR_SHIELD_FACE  RGB(60, 95, 160)
+#define COLOR_SWORD_STEEL  RGB(230, 235, 250)
+
+// RPG Rival (Dark Champion) Palette
+#define COLOR_RIVAL_ARMOR  RGB(45, 35, 55)     // Obsidian Plate
+#define COLOR_RIVAL_CAPE   RGB(110, 25, 45)    // Bloodsilk Mantle
+#define COLOR_RIVAL_SKIN   RGB(210, 190, 205)  // Pale Moonlit Skin
+#define COLOR_RIVAL_HAIR   RGB(20, 15, 25)     // Midnight Black
+#define COLOR_RIVAL_EYES   RGB(255, 60, 100)   // Glowing Crimson
+#define COLOR_MINION_BODY  RGB(140, 30, 60)
+
+// RPG Companion (Fairy Sylph) Palette
+#define COLOR_FAIRY_BODY   RGB(180, 235, 255)  // Glowing Cyan Robes
+#define COLOR_FAIRY_WING   RGB(220, 245, 255)  // Translucent Wings
+#define COLOR_FAIRY_HAIR   RGB(255, 215, 230)  // Pastel Pink Hair
+#define COLOR_FAIRY_GLOW   RGB(100, 200, 255)  // Starlight Aura
+
+#define COLOR_BTN_NORMAL   RGB(78, 46, 110)
+#define COLOR_BTN_BORDER   RGB(180, 140, 220)
+
+enum RivalWeaponType {
+    WEAPON_SCYTHE = 0,
+    WEAPON_CLEAVER,
+    WEAPON_SPEAR
+};
+
+struct Particle {
+    float x = 0.0f;
+    float y = 0.0f;
+    float vx = 0.0f;
+    float vy = 0.0f;
+    int life = 20;
+    COLORREF color = RGB(255, 255, 255);
+    int size = 3;
+};
+
+struct Projectile {
+    float x = 0.0f;
+    float y = 0.0f;
+    float vx = 0.0f;
+    float vy = 0.0f;
+    int damage = 12;
+    int life = 60;
+};
+
+struct SpellRay {
+    bool active = false;
+    float x1 = 0, y1 = 0, x2 = 0, y2 = 0;
+    int timer = 0;
+};
+
+HFONT hMainFont = nullptr;
+HFONT hTitleFont = nullptr;
+HFONT hHeaderFont = nullptr;
+HFONT hLogFont = nullptr;
+HFONT hEnemyTagFont = nullptr;
+
+struct Entity {
+    float x = 120.0f;
+    float y = 140.0f;
+    float vx = 0.0f;
+    float vy = 0.0f;
+    float radius = 16.0f;
+    int hp = 100;
+    int maxHp = 100;
+    int attack = 24;
+    int weaponTier = 1;
+    int armorTier = 1;
+    int level = 1;
+    int exp = 0;
+    int expNeeded = 40;
+    int potions = 3;
+    int gold = 40;
+    int wins = 0;
+    int attackCooldown = 0;
+    int hurtFlash = 0;
+    int novaCooldown = 0;
+    int rayCooldown = 0;
+
+    int facing = 1;
+    float walkCycle = 0.0f;
+    bool isMoving = false;
+};
+
+struct Companion {
+    bool active = false;
+    float x = 100.0f;
+    float y = 100.0f;
+    float wingTimer = 0.0f;
+    int attackTimer = 0;
+    int tier = 0;
+};
+
+struct Monster : public Entity {
+    std::wstring name;
+    std::wstring weaponName;
+    RivalWeaponType weaponType = WEAPON_SCYTHE;
+    float attackReach = 48.0f;
+};
+
+struct Minion {
+    float x = 0.0f;
+    float y = 0.0f;
+    float radius = 10.0f;
+    int hp = 25;
+    int maxHp = 25;
+    int attack = 5;
+    int attackCooldown = 0;
+    int hurtFlash = 0;
+    bool active = true;
+};
+
+Entity player;
+Monster enemy;
+Companion companion;
+std::vector<Minion> minions;
+std::vector<Projectile> projectiles;
+std::vector<Particle> particles;
+SpellRay eclipseRay;
+std::vector<std::wstring> logLines;
+
+bool gameStarted = false;
+bool gameOver = false;
+bool isLevelUpPaused = false;
+bool keys[256] = { false };
+HWND hwndMain = nullptr;
+
+const int ARENA_X = 25;
+const int ARENA_Y = 25;
+const int ARENA_W = 535;
+const int ARENA_H = 265;
+const int PLAY_TOP = ARENA_Y + 34;
+
+RECT btnStartRect = { 190, 270, 390, 316 };
+RECT btnRestartRect = { 190, 210, 390, 252 };
+RECT btnExitRect = { 230, 325, 350, 360 };
+
+void appendLog(const std::wstring& text) {
+    std::wstringstream ss(text);
+    std::wstring line;
+    while (std::getline(ss, line)) {
+        if (!line.empty()) {
+            logLines.push_back(line);
+            if (logLines.size() > 7) {
+                logLines.erase(logLines.begin());
+            }
+        }
+    }
+}
+
+void spawnParticles(float x, float y, int count, COLORREF color, float maxSpeed, int lifeSpan, int size = 3) {
+    for (int i = 0; i < count; ++i) {
+        Particle p;
+        p.x = x;
+        p.y = y;
+        float angle = ((float)std::rand() / RAND_MAX) * 6.283185f;
+        float speed = (((float)std::rand() / RAND_MAX) * maxSpeed) + 0.5f;
+        p.vx = std::cos(angle) * speed;
+        p.vy = std::sin(angle) * speed;
+        p.life = lifeSpan + (std::rand() % 6);
+        p.color = color;
+        p.size = size;
+        particles.push_back(p);
+    }
+}
+
+std::wstring generateUniqueMonsterName() {
+    static const std::vector<std::wstring> prefixes = {
+        L"Lilith", L"Morrigan", L"Morgana", L"Selene", L"Nyx", 
+        L"Astrid", L"Isolde", L"Vespera", L"Ravena", L"Freya"
+    };
+    static const std::vector<std::wstring> titles = {
+        L"the Moonlit Siren", L"the Shadow Witch", L"the Blood Empress",
+        L"the Frost Valkyrie", L"the Twilight Stalker", L"the Void Weaver"
+    };
+    return prefixes[std::rand() % prefixes.size()] + L" " + titles[std::rand() % titles.size()];
+}
+
+void spawnEnemy() {
+    enemy.name = generateUniqueMonsterName();
+    enemy.level = 1 + (player.wins / 2);
+    enemy.maxHp = 45 + (enemy.level * 25);
+    enemy.hp = enemy.maxHp;
+    enemy.facing = -1;
+    enemy.walkCycle = 0.0f;
+    
+    int wChoice = std::rand() % 3;
+    if (wChoice == 0) {
+        enemy.weaponType = WEAPON_SCYTHE;
+        enemy.weaponName = L"Void Scythe";
+        enemy.attackReach = 54.0f;
+        enemy.attack = 8 + (enemy.level * 3);
+    } else if (wChoice == 1) {
+        enemy.weaponType = WEAPON_CLEAVER;
+        enemy.weaponName = L"Blood Cleaver";
+        enemy.attackReach = 44.0f;
+        enemy.attack = 12 + (enemy.level * 4);
+    } else {
+        enemy.weaponType = WEAPON_SPEAR;
+        enemy.weaponName = L"Obsidian Spear";
+        enemy.attackReach = 62.0f;
+        enemy.attack = 7 + (enemy.level * 3);
+    }
+
+    enemy.x = ARENA_X + ARENA_W - 75.0f;
+    enemy.y = PLAY_TOP + 80.0f;
+    enemy.vx = 0.0f;
+    enemy.vy = 0.0f;
+    enemy.hurtFlash = 0;
+
+    minions.clear();
+    int minionCount = (enemy.level > 1) ? (std::min)(3, enemy.level - 1) : 0;
+    for (int i = 0; i < minionCount; ++i) {
+        Minion m;
+        m.x = enemy.x + (std::rand() % 30 - 15);
+        m.y = enemy.y + (i * 40.0f - (minionCount * 18.0f));
+        m.maxHp = 18 + (enemy.level * 8);
+        m.hp = m.maxHp;
+        m.attack = 4 + (enemy.level * 2);
+        m.active = true;
+        minions.push_back(m);
+    }
+
+    appendLog(L"✦ [Lv." + std::to_wstring(enemy.level) + L"] " + enemy.name + L" enters with " + enemy.weaponName + L"!");
+    if (minionCount > 0) {
+        appendLog(L" [!] Accompanied by " + std::to_wstring(minionCount) + L" Shadow Thrall minions!");
+    }
+}
+
+void triggerLevelUp() {
+    player.level++;
+    player.maxHp += 25;
+    player.hp = player.maxHp;
+    player.attack += 5;
+    player.expNeeded = static_cast<int>(player.expNeeded * 1.6);
+    isLevelUpPaused = true;
+
+    spawnParticles(player.x, player.y, 45, COLOR_STAR_GOLD, 4.5f, 25, 4);
+
+    appendLog(L"★ LEVEL UP! Reached Level " + std::to_wstring(player.level) + L"! ★");
+    appendLog(L"> Sanctuary open! Press [1-4] to upgrade, [ENTER] to resume.");
+}
+
+void restartGame() {
+    player.level = 1;
+    player.exp = 0;
+    player.expNeeded = 40;
+    player.maxHp = 100;
+    player.hp = player.maxHp;
+    player.attack = 24;
+    player.weaponTier = 1;
+    player.armorTier = 1;
+    player.potions = 3;
+    player.gold = 40;
+    player.wins = 0;
+    player.x = ARENA_X + 80.0f;
+    player.y = PLAY_TOP + 80.0f;
+    player.facing = 1;
+    player.walkCycle = 0.0f;
+    player.isMoving = false;
+    player.attackCooldown = 0;
+    player.novaCooldown = 0;
+    player.rayCooldown = 0;
+    companion.active = false;
+    companion.tier = 0;
+    companion.wingTimer = 0.0f;
+    minions.clear();
+    projectiles.clear();
+    particles.clear();
+    logLines.clear();
+    eclipseRay.active = false;
+    gameOver = false;
+    isLevelUpPaused = false;
+    
+    appendLog(L"✧ ARENA OF THE STAR MAIDEN ✧");
+    appendLog(L"Controls: [W,A,S,D] Move | [SPACE] Slash | [Q] Nova | [R] Ray | [E] Elixir");
+    spawnEnemy();
+}
+
+void startGame() {
+    if (gameStarted) return;
+    gameStarted = true;
+    restartGame();
+}
+
+void onEnemyDefeated() {
+    enemy.hp = 0;
+    player.wins++;
+    int bounty = 25 + (std::rand() % 15);
+    int expGained = 25 + (enemy.level * 15);
+    player.gold += bounty;
+    player.exp += expGained;
+
+    spawnParticles(enemy.x, enemy.y, 40, RGB(255, 90, 160), 3.5f, 24, 4);
+    appendLog(L"[VICTORY] Rival defeated! +" + std::to_wstring(bounty) + L"g | +" + std::to_wstring(expGained) + L" EXP");
+
+    if (player.exp >= player.expNeeded) {
+        player.exp -= player.expNeeded;
+        triggerLevelUp();
+    } else {
+        spawnEnemy();
+    }
+}
+
+void updateGamePhysics() {
+    if (!gameStarted || gameOver || isLevelUpPaused) return;
+
+    const float SPEED = 3.8f;
+    player.vx = 0.0f;
+    player.vy = 0.0f;
+
+    if (keys['W'] || keys[VK_UP])    player.vy -= SPEED;
+    if (keys['S'] || keys[VK_DOWN])  player.vy += SPEED;
+    if (keys['A'] || keys[VK_LEFT])  { player.vx -= SPEED; player.facing = -1; }
+    if (keys['D'] || keys[VK_RIGHT]) { player.vx += SPEED; player.facing =  1; }
+
+    player.isMoving = (player.vx != 0.0f || player.vy != 0.0f);
+    if (player.isMoving) player.walkCycle += 0.25f;
+    else player.walkCycle = 0.0f;
+
+    player.x += player.vx;
+    player.y += player.vy;
+
+    player.x = (std::max)(static_cast<float>(ARENA_X + player.radius + 6), (std::min)(static_cast<float>(ARENA_X + ARENA_W - player.radius - 6), player.x));
+    player.y = (std::max)(static_cast<float>(PLAY_TOP + player.radius + 6), (std::min)(static_cast<float>(ARENA_Y + ARENA_H - player.radius - 6), player.y));
+
+    // Fairy Companion Movement & Animated Flutter
+    if (companion.active) {
+        companion.wingTimer += 0.35f;
+        float cdx = (player.x - 28.0f * player.facing) - companion.x;
+        float cdy = (player.y - 20.0f) - companion.y;
+        companion.x += cdx * 0.08f;
+        companion.y += cdy * 0.08f;
+
+        companion.attackTimer++;
+        if (companion.attackTimer >= 45) {
+            companion.attackTimer = 0;
+            float tx = enemy.x;
+            float ty = enemy.y;
+            if (!minions.empty() && minions[0].active) {
+                tx = minions[0].x;
+                ty = minions[0].y;
+            }
+            float tdx = tx - companion.x;
+            float tdy = ty - companion.y;
+            float tdist = std::sqrt(tdx * tdx + tdy * tdy);
+            if (tdist > 0.0f) {
+                Projectile pr;
+                pr.x = companion.x;
+                pr.y = companion.y;
+                pr.vx = (tdx / tdist) * 6.5f;
+                pr.vy = (tdy / tdist) * 6.5f;
+                pr.damage = 10 + (companion.tier * 6);
+                projectiles.push_back(pr);
+            }
+        }
+    }
+
+    // Rival AI Movement & Facing
+    float dx = player.x - enemy.x;
+    float dy = player.y - enemy.y;
+    float dist = std::sqrt(dx * dx + dy * dy);
+
+    enemy.facing = (dx >= 0) ? 1 : -1;
+    if (dist > 38.0f) {
+        float espeed = 1.6f + (enemy.level * 0.15f);
+        enemy.x += (dx / dist) * espeed;
+        enemy.y += (dy / dist) * espeed;
+        enemy.walkCycle += 0.2f;
+    }
+
+    enemy.x = (std::max)(static_cast<float>(ARENA_X + enemy.radius + 6), (std::min)(static_cast<float>(ARENA_X + ARENA_W - enemy.radius - 6), enemy.x));
+    enemy.y = (std::max)(static_cast<float>(PLAY_TOP + enemy.radius + 6), (std::min)(static_cast<float>(ARENA_Y + ARENA_H - enemy.radius - 6), enemy.y));
+
+    for (auto& m : minions) {
+        if (!m.active) continue;
+        float mdx = player.x - m.x;
+        float mdy = player.y - m.y;
+        float mdist = std::sqrt(mdx * mdx + mdy * mdy);
+        if (mdist > 20.0f) {
+            m.x += (mdx / mdist) * 2.2f;
+            m.y += (mdy / mdist) * 2.2f;
+        }
+
+        if (m.attackCooldown > 0) m.attackCooldown--;
+        if (m.hurtFlash > 0) m.hurtFlash--;
+
+        if (mdist < 24.0f && m.attackCooldown == 0) {
+            player.hp -= m.attack;
+            player.hurtFlash = 6;
+            m.attackCooldown = 50;
+            spawnParticles(player.x, player.y, 8, RGB(255, 60, 60), 2.0f, 10, 2);
+            if (player.hp <= 0) {
+                player.hp = 0;
+                gameOver = true;
+                appendLog(L"[DEFEAT] Slain by minions! Press [ENTER] to restart.");
+            }
+        }
+    }
+
+    for (size_t i = 0; i < projectiles.size(); ) {
+        projectiles[i].x += projectiles[i].vx;
+        projectiles[i].y += projectiles[i].vy;
+        projectiles[i].life--;
+
+        bool hit = false;
+        float pdx = enemy.x - projectiles[i].x;
+        float pdy = enemy.y - projectiles[i].y;
+        if (std::sqrt(pdx * pdx + pdy * pdy) < enemy.radius + 6.0f) {
+            enemy.hp -= projectiles[i].damage;
+            enemy.hurtFlash = 8;
+            spawnParticles(enemy.x, enemy.y, 10, COLOR_FAIRY_GLOW, 2.5f, 10, 3);
+            hit = true;
+            if (enemy.hp <= 0) onEnemyDefeated();
+        }
+
+        if (!hit) {
+            for (auto& m : minions) {
+                if (!m.active) continue;
+                float mdx = m.x - projectiles[i].x;
+                float mdy = m.y - projectiles[i].y;
+                if (std::sqrt(mdx * mdx + mdy * mdy) < m.radius + 6.0f) {
+                    m.hp -= projectiles[i].damage;
+                    m.hurtFlash = 8;
+                    hit = true;
+                    if (m.hp <= 0) {
+                        m.active = false;
+                        player.gold += 8;
+                        player.exp += 10;
+                    }
+                    break;
+                }
+            }
+        }
+
+        if (hit || projectiles[i].life <= 0) {
+            projectiles.erase(projectiles.begin() + i);
+        } else {
+            i++;
+        }
+    }
+
+    if (enemy.attackCooldown > 0) enemy.attackCooldown--;
+    if (player.attackCooldown > 0) player.attackCooldown--;
+    if (player.novaCooldown > 0) player.novaCooldown--;
+    if (player.rayCooldown > 0) player.rayCooldown--;
+    if (player.hurtFlash > 0) player.hurtFlash--;
+    if (enemy.hurtFlash > 0) enemy.hurtFlash--;
+
+    for (size_t i = 0; i < particles.size(); ) {
+        particles[i].x += particles[i].vx;
+        particles[i].y += particles[i].vy;
+        particles[i].life--;
+        if (particles[i].life <= 0) particles.erase(particles.begin() + i);
+        else i++;
+    }
+
+    if (eclipseRay.active) {
+        eclipseRay.timer--;
+        if (eclipseRay.timer <= 0) eclipseRay.active = false;
+    }
+
+    if (dist <= enemy.attackReach && enemy.attackCooldown == 0) {
+        int dmg = enemy.attack + (std::rand() % 5);
+        player.hp -= dmg;
+        player.hurtFlash = 8;
+        enemy.attackCooldown = 45;
+
+        spawnParticles(player.x, player.y, 16, RGB(255, 60, 90), 2.8f, 15, 3);
+        appendLog(L"[!] " + enemy.name + L" struck with " + enemy.weaponName + L" for " + std::to_wstring(dmg) + L" dmg!");
+
+        if (player.hp <= 0) {
+            player.hp = 0;
+            gameOver = true;
+            appendLog(L"[DEFEAT] Fallen in battle! Press [ENTER] to restart.");
+        }
+    }
+}
+
+void playerAttack() {
+    if (gameOver || !gameStarted || isLevelUpPaused || player.attackCooldown > 0) return;
+
+    player.attackCooldown = 18;
+    spawnParticles(player.x + (player.facing * 16.0f), player.y, 10, COLOR_TEXT_HEADER, 2.5f, 10, 3);
+
+    float dx = enemy.x - player.x;
+    float dy = enemy.y - player.y;
+    if (std::sqrt(dx * dx + dy * dy) < 68.0f) {
+        int dmg = player.attack + (std::rand() % 8);
+        enemy.hp -= dmg;
+        enemy.hurtFlash = 8;
+        spawnParticles(enemy.x, enemy.y, 18, COLOR_STAR_GOLD, 3.2f, 14, 4);
+        appendLog(L"> Astral Blade hit " + enemy.name + L" for " + std::to_wstring(dmg) + L" dmg!");
+        if (enemy.hp <= 0) onEnemyDefeated();
+    }
+
+    for (auto& m : minions) {
+        if (!m.active) continue;
+        float mdx = m.x - player.x;
+        float mdy = m.y - player.y;
+        if (std::sqrt(mdx * mdx + mdy * mdy) < 64.0f) {
+            int dmg = player.attack + (std::rand() % 6);
+            m.hp -= dmg;
+            m.hurtFlash = 8;
+            if (m.hp <= 0) {
+                m.active = false;
+                player.gold += 8;
+                player.exp += 10;
+            }
+        }
+    }
+}
+
+void playerCastNova() {
+    if (gameOver || !gameStarted || isLevelUpPaused) return;
+    if (player.level < 2) {
+        appendLog(L"[!] Starlight Nova unlocks at Level 2!");
+        return;
+    }
+    if (player.novaCooldown > 0) return;
+
+    player.novaCooldown = 120;
+    spawnParticles(player.x, player.y, 36, COLOR_STAR_GOLD, 4.0f, 22, 4);
+
+    float dx = enemy.x - player.x;
+    float dy = enemy.y - player.y;
+    if (std::sqrt(dx * dx + dy * dy) < 135.0f) {
+        int dmg = static_cast<int>(player.attack * 1.6f) + (std::rand() % 10);
+        enemy.hp -= dmg;
+        enemy.hurtFlash = 10;
+        spawnParticles(enemy.x, enemy.y, 25, RGB(255, 230, 100), 3.8f, 18, 4);
+        appendLog(L"> Starlight Nova blasted foe for " + std::to_wstring(dmg) + L" holy dmg!");
+        if (enemy.hp <= 0) onEnemyDefeated();
+    }
+
+    for (auto& m : minions) {
+        if (!m.active) continue;
+        float mdx = m.x - player.x;
+        float mdy = m.y - player.y;
+        if (std::sqrt(mdx * mdx + mdy * mdy) < 135.0f) {
+            int dmg = player.attack + 12;
+            m.hp -= dmg;
+            m.hurtFlash = 10;
+            if (m.hp <= 0) {
+                m.active = false;
+                player.gold += 8;
+                player.exp += 10;
+            }
+        }
+    }
+}
+
+void playerCastRay() {
+    if (gameOver || !gameStarted || isLevelUpPaused) return;
+    if (player.level < 3) {
+        appendLog(L"[!] Eclipse Ray unlocks at Level 3!");
+        return;
+    }
+    if (player.rayCooldown > 0) return;
+
+    player.rayCooldown = 180;
+    eclipseRay.active = true;
+    eclipseRay.x1 = player.x;
+    eclipseRay.y1 = player.y;
+    eclipseRay.x2 = enemy.x;
+    eclipseRay.y2 = enemy.y;
+    eclipseRay.timer = 12;
+
+    int dmg = (player.attack * 2) + (std::rand() % 15);
+    enemy.hp -= dmg;
+    enemy.hurtFlash = 12;
+    spawnParticles(enemy.x, enemy.y, 30, RGB(220, 120, 255), 4.2f, 20, 4);
+
+    appendLog(L"> Eclipse Ray pierced " + enemy.name + L" for " + std::to_wstring(dmg) + L" cosmic dmg!");
+    if (enemy.hp <= 0) onEnemyDefeated();
+}
+
+void playerDrinkPotion() {
+    if (gameOver || !gameStarted || isLevelUpPaused || player.potions <= 0) return;
+
+    player.potions--;
+    int healed = 35 + (player.level * 6);
+    player.hp = (std::min)(player.maxHp, player.hp + healed);
+    spawnParticles(player.x, player.y, 24, RGB(120, 255, 180), 2.2f, 18, 3);
+    appendLog(L"> Quaffed Elixir! Restored " + std::to_wstring(healed) + L" HP.");
+}
+
+// 1. RPG HEROINE SPRITE (Sword, Shield, Cape, Armor)
+void drawHeroine(HDC hdc, int cx, int cy, bool hurt) {
+    int dir = player.facing;
+    int bob = (int)(std::sin(player.walkCycle) * 2.0f);
+    int legOffset = (int)(std::cos(player.walkCycle) * 3.0f);
+
+    // Draped Cloak
+    HBRUSH capeB = CreateSolidBrush(hurt ? RGB(255, 90, 90) : COLOR_CAPE);
+    SelectObject(hdc, capeB);
+    SelectObject(hdc, GetStockObject(NULL_PEN));
+    POINT capePts[4] = {
+        { cx - 10, cy - 6 + bob },
+        { cx + 10, cy - 6 + bob },
+        { cx + (8 * dir), cy + 18 },
+        { cx - (12 * dir), cy + 18 }
+    };
+    Polygon(hdc, capePts, 4);
+    DeleteObject(capeB);
+
+    // Boots
+    HBRUSH bootB = CreateSolidBrush(RGB(55, 45, 40));
+    SelectObject(hdc, bootB);
+    Ellipse(hdc, cx - 7 + legOffset, cy + 14, cx - 1 + legOffset, cy + 22);
+    Ellipse(hdc, cx + 1 - legOffset, cy + 14, cx + 7 - legOffset, cy + 22);
+    DeleteObject(bootB);
+
+    // Tunic & Breastplate
+    HBRUSH tunicB = CreateSolidBrush(COLOR_TUNIC);
+    SelectObject(hdc, tunicB);
+    Ellipse(hdc, cx - 9, cy - 6 + bob, cx + 9, cy + 14 + bob);
+    DeleteObject(tunicB);
+
+    HBRUSH armorB = CreateSolidBrush(COLOR_ARMOR_STEEL);
+    SelectObject(hdc, armorB);
+    HPEN armorPen = CreatePen(PS_SOLID, 1, RGB(225, 230, 245));
+    SelectObject(hdc, armorPen);
+    Ellipse(hdc, cx - 8, cy - 5 + bob, cx + 8, cy + 9 + bob);
+    DeleteObject(armorB);
+    DeleteObject(armorPen);
+
+    // Gold Belt
+    HPEN beltPen = CreatePen(PS_SOLID, 2, COLOR_COIN_GOLD);
+    SelectObject(hdc, beltPen);
+    MoveToEx(hdc, cx - 7, cy + 8 + bob, NULL);
+    LineTo(hdc, cx + 7, cy + 8 + bob);
+    DeleteObject(beltPen);
+
+    // Head & Skin
+    HBRUSH skinB = CreateSolidBrush(COLOR_SKIN);
+    SelectObject(hdc, skinB);
+    Ellipse(hdc, cx - 7, cy - 16 + bob, cx + 7, cy - 2 + bob);
+    DeleteObject(skinB);
+
+    // Golden Hair & Ponytail
+    HBRUSH hairB = CreateSolidBrush(COLOR_HAIR);
+    SelectObject(hdc, hairB);
+    Ellipse(hdc, cx - 8, cy - 18 + bob, cx + 8, cy - 8 + bob);
+    Ellipse(hdc, cx - (9 * dir), cy - 16 + bob, cx - (3 * dir), cy - 6 + bob);
+    DeleteObject(hairB);
+
+    // Buckler Shield
+    int shX = cx - (12 * dir);
+    int shY = cy + 2 + bob;
+    HBRUSH shWoodB = CreateSolidBrush(COLOR_SHIELD_WOOD);
+    SelectObject(hdc, shWoodB);
+    HPEN shRimP = CreatePen(PS_SOLID, 1, COLOR_STAR_GOLD);
+    SelectObject(hdc, shRimP);
+    Ellipse(hdc, shX - 6, shY - 7, shX + 6, shY + 7);
+    DeleteObject(shWoodB);
+    DeleteObject(shRimP);
+
+    HBRUSH shFaceB = CreateSolidBrush(COLOR_SHIELD_FACE);
+    SelectObject(hdc, shFaceB);
+    Ellipse(hdc, shX - 3, shY - 4, shX + 3, shY + 4);
+    DeleteObject(shFaceB);
+
+    // Steel Sword
+    int swX = cx + (10 * dir);
+    int swY = cy + 4 + bob;
+    HPEN guardPen = CreatePen(PS_SOLID, 2, COLOR_COIN_GOLD);
+    SelectObject(hdc, guardPen);
+    MoveToEx(hdc, swX - 3, swY - 2, NULL);
+    LineTo(hdc, swX + 3, swY - 2);
+    DeleteObject(guardPen);
+
+    HPEN bladePen = CreatePen(PS_SOLID, 2, (player.weaponTier > 1) ? RGB(255, 240, 160) : COLOR_SWORD_STEEL);
+    SelectObject(hdc, bladePen);
+    MoveToEx(hdc, swX, swY - 2, NULL);
+    LineTo(hdc, swX + (4 * dir), swY - 20);
+    DeleteObject(bladePen);
+}
+
+// 2. RPG COMPANION SPRITE (Arcane Fairy / Starlight Sylph with Fluttering Wings)
+void drawCompanion(HDC hdc, int cx, int cy) {
+    int flutter = (int)(std::sin(companion.wingTimer) * 6.0f);
+
+    // Starlight Aura
+    HBRUSH glowB = CreateSolidBrush(COLOR_FAIRY_GLOW);
+    SelectObject(hdc, glowB);
+    SelectObject(hdc, GetStockObject(NULL_PEN));
+    Ellipse(hdc, cx - 14, cy - 14, cx + 14, cy + 14);
+    DeleteObject(glowB);
+
+    // Translucent Fairy Wings (Fluttering)
+    HBRUSH wingB = CreateSolidBrush(COLOR_FAIRY_WING);
+    SelectObject(hdc, wingB);
+    HPEN wingPen = CreatePen(PS_SOLID, 1, RGB(180, 230, 255));
+    SelectObject(hdc, wingPen);
+    // Left Wing
+    Ellipse(hdc, cx - 18, cy - 12 - flutter, cx - 3, cy + 2);
+    // Right Wing
+    Ellipse(hdc, cx + 3, cy - 12 + flutter, cx + 18, cy + 2);
+    DeleteObject(wingB);
+    DeleteObject(wingPen);
+
+    // Fairy Dress / Body
+    HBRUSH bodyB = CreateSolidBrush(COLOR_FAIRY_BODY);
+    SelectObject(hdc, bodyB);
+    Ellipse(hdc, cx - 5, cy - 4, cx + 5, cy + 8);
+    DeleteObject(bodyB);
+
+    // Head & Pastel Hair
+    HBRUSH skinB = CreateSolidBrush(COLOR_SKIN);
+    SelectObject(hdc, skinB);
+    Ellipse(hdc, cx - 4, cy - 11, cx + 4, cy - 3);
+    DeleteObject(skinB);
+
+    HBRUSH hairB = CreateSolidBrush(COLOR_FAIRY_HAIR);
+    SelectObject(hdc, hairB);
+    Ellipse(hdc, cx - 5, cy - 13, cx + 5, cy - 7);
+    DeleteObject(hairB);
+
+    // Halo / Mini Tiara
+    HPEN haloPen = CreatePen(PS_SOLID, 1, COLOR_STAR_GOLD);
+    SelectObject(hdc, haloPen);
+    SelectObject(hdc, GetStockObject(NULL_BRUSH));
+    Ellipse(hdc, cx - 6, cy - 16, cx + 6, cy - 12);
+    DeleteObject(haloPen);
+}
+
+// 3. RPG RIVAL SPRITE (Dark Champion: Mantle, Obsidian Pauldrons, Horned Helm)
+void drawRival(HDC hdc, int cx, int cy, bool hurt) {
+    int dir = enemy.facing;
+    int bob = (int)(std::sin(enemy.walkCycle) * 2.0f);
+    int legOffset = (int)(std::cos(enemy.walkCycle) * 3.0f);
+
+    // 1. Dark Shadow Mist
+    HBRUSH mistB = CreateSolidBrush(hurt ? RGB(255, 80, 80) : RGB(50, 20, 40));
+    SelectObject(hdc, mistB);
+    SelectObject(hdc, GetStockObject(NULL_PEN));
+    Ellipse(hdc, cx - 22, cy - 22, cx + 22, cy + 22);
+    DeleteObject(mistB);
+
+    // 2. Bloodsilk Mantle (Flowing Cape)
+    HBRUSH capeB = CreateSolidBrush(COLOR_RIVAL_CAPE);
+    SelectObject(hdc, capeB);
+    POINT capePts[4] = {
+        { cx - 11, cy - 6 + bob },
+        { cx + 11, cy - 6 + bob },
+        { cx + (12 * dir), cy + 20 },
+        { cx - (8 * dir), cy + 20 }
+    };
+    Polygon(hdc, capePts, 4);
+    DeleteObject(capeB);
+
+    // 3. Obsidian Sabatons (Boots)
+    HBRUSH bootB = CreateSolidBrush(RGB(30, 20, 35));
+    SelectObject(hdc, bootB);
+    Ellipse(hdc, cx - 8 + legOffset, cy + 14, cx - 1 + legOffset, cy + 22);
+    Ellipse(hdc, cx + 1 - legOffset, cy + 14, cx + 8 - legOffset, cy + 22);
+    DeleteObject(bootB);
+
+    // 4. Obsidian Plate Armor & Spiked Pauldrons (Shoulders)
+    HBRUSH armorB = CreateSolidBrush(COLOR_RIVAL_ARMOR);
+    SelectObject(hdc, armorB);
+    HPEN armorP = CreatePen(PS_SOLID, 1, RGB(160, 60, 95));
+    SelectObject(hdc, armorP);
+    Ellipse(hdc, cx - 9, cy - 6 + bob, cx + 9, cy + 14 + bob);
+
+    // Spiked Pauldrons
+    Ellipse(hdc, cx - 14, cy - 8 + bob, cx - 6, cy + 2 + bob);
+    Ellipse(hdc, cx + 6, cy - 8 + bob, cx + 14, cy + 2 + bob);
+    DeleteObject(armorB);
+    DeleteObject(armorP);
+
+    // 5. Pale Head & Shadow Hair
+    HBRUSH skinB = CreateSolidBrush(COLOR_RIVAL_SKIN);
+    SelectObject(hdc, skinB);
+    Ellipse(hdc, cx - 7, cy - 16 + bob, cx + 7, cy - 2 + bob);
+    DeleteObject(skinB);
+
+    HBRUSH hairB = CreateSolidBrush(COLOR_RIVAL_HAIR);
+    SelectObject(hdc, hairB);
+    Ellipse(hdc, cx - 8, cy - 18 + bob, cx + 8, cy - 7 + bob);
+    DeleteObject(hairB);
+
+    // 6. Jagged Horns / Crown
+    HPEN hornP = CreatePen(PS_SOLID, 2, RGB(220, 60, 100));
+    SelectObject(hdc, hornP);
+    MoveToEx(hdc, cx - 6, cy - 15 + bob, NULL);
+    LineTo(hdc, cx - 12, cy - 26 + bob);
+    MoveToEx(hdc, cx + 6, cy - 15 + bob, NULL);
+    LineTo(hdc, cx + 12, cy - 26 + bob);
+    DeleteObject(hornP);
+
+    // 7. Glowing Ruby Eyes
+    HBRUSH eyeB = CreateSolidBrush(COLOR_RIVAL_EYES);
+    SelectObject(hdc, eyeB);
+    int eyeDir = (dir == 1) ? 1 : -3;
+    Ellipse(hdc, cx + eyeDir - 3, cy - 10 + bob, cx + eyeDir - 1, cy - 7 + bob);
+    Ellipse(hdc, cx + eyeDir + 1, cy - 10 + bob, cx + eyeDir + 3, cy - 7 + bob);
+    DeleteObject(eyeB);
+
+    // 8. Equiped Rival Weapon in Hand
+    int wepX = cx + (12 * dir);
+    int wepY = cy + 4 + bob;
+
+    if (enemy.weaponType == WEAPON_SCYTHE) {
+        HPEN scytheP = CreatePen(PS_SOLID, 2, RGB(180, 170, 210));
+        SelectObject(hdc, scytheP);
+        MoveToEx(hdc, wepX, wepY + 14, NULL);
+        LineTo(hdc, wepX, wepY - 22);
+        Arc(hdc, wepX - 16, wepY - 30, wepX + 16, wepY - 10, wepX, wepY - 30, wepX + (14 * dir), wepY - 14);
+        DeleteObject(scytheP);
+    } else if (enemy.weaponType == WEAPON_CLEAVER) {
+        HPEN cleaverP = CreatePen(PS_SOLID, 3, RGB(240, 70, 95));
+        SelectObject(hdc, cleaverP);
+        MoveToEx(hdc, wepX - 2, wepY + 8, NULL);
+        LineTo(hdc, wepX + (6 * dir), wepY - 18);
+        MoveToEx(hdc, wepX + (6 * dir), wepY - 18, NULL);
+        LineTo(hdc, wepX + (14 * dir), wepY - 10);
+        DeleteObject(cleaverP);
+    } else { // SPEAR
+        HPEN spearP = CreatePen(PS_SOLID, 2, RGB(230, 235, 250));
+        SelectObject(hdc, spearP);
+        MoveToEx(hdc, wepX - (4 * dir), wepY + 16, NULL);
+        LineTo(hdc, wepX + (10 * dir), wepY - 26);
+        // Spearhead red tassel
+        HPEN tasselP = CreatePen(PS_SOLID, 2, RGB(255, 60, 60));
+        SelectObject(hdc, tasselP);
+        MoveToEx(hdc, wepX + (6 * dir), wepY - 18, NULL);
+        LineTo(hdc, wepX + (4 * dir), wepY - 12);
+        DeleteObject(tasselP);
+        DeleteObject(spearP);
+    }
+
+    // Overhead Tag Info
+    int tagX = cx - 45;
+    int tagY = cy - 44;
+
+    RECT tagBgRc = { tagX - 4, tagY - 2, tagX + 94, tagY + 24 };
+    HBRUSH tagBgB = CreateSolidBrush(RGB(24, 14, 38));
+    FillRect(hdc, &tagBgRc, tagBgB);
+    DeleteObject(tagBgB);
+
+    HPEN tagBorderP = CreatePen(PS_SOLID, 1, RGB(180, 50, 90));
+    HPEN oldTagP = (HPEN)SelectObject(hdc, tagBorderP);
+    SelectObject(hdc, GetStockObject(NULL_BRUSH));
+    Rectangle(hdc, tagBgRc.left, tagBgRc.top, tagBgRc.right, tagBgRc.bottom);
+    SelectObject(hdc, oldTagP);
+    DeleteObject(tagBorderP);
+
+    SelectObject(hdc, hEnemyTagFont);
+    SetTextColor(hdc, RGB(255, 140, 180));
+    std::wstring tagText = L"[Lv." + std::to_wstring(enemy.level) + L"] " + enemy.name.substr(0, 10);
+    TextOutW(hdc, tagX, tagY, tagText.c_str(), tagText.length());
+
+    int barW = 86;
+    int barH = 5;
+    int barX = tagX;
+    int barY = tagY + 14;
+
+    HBRUSH barBgB = CreateSolidBrush(RGB(40, 20, 35));
+    RECT barBgRc = { barX, barY, barX + barW, barY + barH };
+    FillRect(hdc, &barBgRc, barBgB);
+    DeleteObject(barBgB);
+
+    float hpPct = std::max(0.0f, std::min(1.0f, (float)enemy.hp / (float)enemy.maxHp));
+    int fillW = (int)(barW * hpPct);
+    if (fillW > 0) {
+        HBRUSH fillB = CreateSolidBrush(RGB(255, 60, 90));
+        RECT fillRc = { barX, barY, barX + fillW, barY + barH };
+        FillRect(hdc, &fillRc, fillB);
+        DeleteObject(fillB);
+    }
+}
+
+void drawMinion(HDC hdc, int cx, int cy, bool hurt) {
+    HBRUSH b = CreateSolidBrush(hurt ? RGB(255, 80, 80) : COLOR_MINION_BODY);
+    SelectObject(hdc, b);
+    SelectObject(hdc, GetStockObject(NULL_PEN));
+    Ellipse(hdc, cx - 8, cy - 8, cx + 8, cy + 8);
+    DeleteObject(b);
+
+    HBRUSH eyeB = CreateSolidBrush(RGB(255, 230, 100));
+    SelectObject(hdc, eyeB);
+    Ellipse(hdc, cx - 4, cy - 3, cx - 1, cy);
+    Ellipse(hdc, cx + 1, cy - 3, cx + 4, cy);
+    DeleteObject(eyeB);
+}
+
+void drawCanvasButton(HDC hdc, const RECT& rc, const std::wstring& text) {
+    HBRUSH btnB = CreateSolidBrush(COLOR_BTN_NORMAL);
+    FillRect(hdc, &rc, btnB);
+    DeleteObject(btnB);
+
+    HPEN pen = CreatePen(PS_SOLID, 1, COLOR_BTN_BORDER);
+    HPEN oldPen = (HPEN)SelectObject(hdc, pen);
+    SelectObject(hdc, GetStockObject(NULL_BRUSH));
+    Rectangle(hdc, rc.left, rc.top, rc.right, rc.bottom);
+    SelectObject(hdc, oldPen);
+    DeleteObject(pen);
+
+    SetBkMode(hdc, TRANSPARENT);
+    SetTextColor(hdc, COLOR_TEXT_BODY);
+    SelectObject(hdc, hMainFont);
+    RECT tr = rc;
+    DrawTextW(hdc, text.c_str(), -1, &tr, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+}
+
+LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    switch (msg) {
+    case WM_CREATE: {
+        hMainFont = CreateFontW(14, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE,
+            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+            CLEARTYPE_QUALITY, VARIABLE_PITCH, L"Segoe UI");
+
+        hHeaderFont = CreateFontW(15, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+            CLEARTYPE_QUALITY, VARIABLE_PITCH, L"Segoe UI");
+
+        hEnemyTagFont = CreateFontW(11, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+            CLEARTYPE_QUALITY, VARIABLE_PITCH, L"Segoe UI");
+
+        hTitleFont = CreateFontW(28, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+            CLEARTYPE_QUALITY, VARIABLE_PITCH, L"Segoe UI");
+
+        hLogFont = CreateFontW(13, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+            CLEARTYPE_QUALITY, VARIABLE_PITCH, L"Consolas");
+
+        SetTimer(hwnd, TIMER_GAME_LOOP, 16, NULL);
+        break;
+    }
+
+    case WM_ERASEBKGND:
+        return 1;
+
+    case WM_TIMER: {
+        if (wParam == TIMER_GAME_LOOP) {
+            updateGamePhysics();
+            InvalidateRect(hwnd, NULL, FALSE);
+        }
+        break;
+    }
+
+    case WM_LBUTTONDOWN: {
+        int mx = LOWORD(lParam);
+        int my = HIWORD(lParam);
+
+        if (!gameStarted) {
+            if (mx >= btnStartRect.left && mx <= btnStartRect.right && my >= btnStartRect.top && my <= btnStartRect.bottom) {
+                startGame();
+            } else if (mx >= btnExitRect.left && mx <= btnExitRect.right && my >= btnExitRect.top && my <= btnExitRect.bottom) {
+                PostMessage(hwnd, WM_CLOSE, 0, 0);
+            }
+        } else if (gameOver) {
+            if (mx >= btnRestartRect.left && mx <= btnRestartRect.right && my >= btnRestartRect.top && my <= btnRestartRect.bottom) {
+                restartGame();
+            }
+        }
+        break;
+    }
+
+    case WM_KEYDOWN: {
+        if (wParam < 256) keys[wParam] = true;
+
+        if (wParam == VK_ESCAPE) {
+            PostMessage(hwnd, WM_CLOSE, 0, 0);
+            return 0;
+        }
+
+        if (isLevelUpPaused) {
+            if (wParam == '1') {
+                if (player.gold >= 35) {
+                    player.gold -= 35;
+                    player.weaponTier++;
+                    player.attack += 7;
+                    appendLog(L"> Honed Weapon (+7 ATK)!");
+                } else appendLog(L"[!] Need 35g for Weapon!");
+            } else if (wParam == '2') {
+                if (player.gold >= 30) {
+                    player.gold -= 30;
+                    player.armorTier++;
+                    player.maxHp += 30;
+                    player.hp = player.maxHp;
+                    appendLog(L"> Enhanced Robes (+30 Max HP)!");
+                } else appendLog(L"[!] Need 30g for Robes!");
+            } else if (wParam == '3') {
+                if (player.gold >= 20) {
+                    player.gold -= 20;
+                    player.potions++;
+                    appendLog(L"> Brewed Star Elixir (+1)!");
+                } else appendLog(L"[!] Need 20g for Elixir!");
+            } else if (wParam == '4') {
+                if (player.gold >= 50) {
+                    player.gold -= 50;
+                    companion.active = true;
+                    companion.tier++;
+                    companion.x = player.x - 30;
+                    companion.y = player.y - 25;
+                    appendLog(L"> Familiar empowered to Tier " + std::to_wstring(companion.tier) + L"!");
+                } else appendLog(L"[!] Need 50g for Familiar!");
+            } else if (wParam == VK_RETURN) {
+                isLevelUpPaused = false;
+                appendLog(L"> Resuming battle!");
+                spawnEnemy();
+            }
+            return 0;
+        }
+
+        if (wParam == VK_RETURN) {
+            if (!gameStarted) startGame();
+            else if (gameOver) restartGame();
+        } else if (wParam == VK_SPACE) {
+            playerAttack();
+        } else if (wParam == 'E') {
+            playerDrinkPotion();
+        } else if (wParam == 'Q') {
+            playerCastNova();
+        } else if (wParam == 'R') {
+            playerCastRay();
+        }
+        break;
+    }
+
+    case WM_KEYUP: {
+        if (wParam < 256) keys[wParam] = false;
+        break;
+    }
+
+    case WM_PAINT: {
+        PAINTSTRUCT ps;
+        HDC hdcWindow = BeginPaint(hwnd, &ps);
+
+        RECT clientRc;
+        GetClientRect(hwnd, &clientRc);
+        int winW = clientRc.right - clientRc.left;
+        int winH = clientRc.bottom - clientRc.top;
+
+        HDC hdcMem = CreateCompatibleDC(hdcWindow);
+        HBITMAP hbmMem = CreateCompatibleBitmap(hdcWindow, winW, winH);
+        HBITMAP hOldBmp = (HBITMAP)SelectObject(hdcMem, hbmMem);
+
+        HBRUSH bgBrush = CreateSolidBrush(COLOR_WINDOW_BG);
+        FillRect(hdcMem, &clientRc, bgBrush);
+        DeleteObject(bgBrush);
+
+        SetBkMode(hdcMem, TRANSPARENT);
+
+        if (!gameStarted) {
+            SelectObject(hdcMem, hTitleFont);
+            SetTextColor(hdcMem, COLOR_TEXT_HEADER);
+            RECT tr1 = { 50, 110, 535, 180 };
+            DrawTextW(hdcMem, L"✧ LUNARIA ✧\nArena of the Star Maiden", -1, &tr1, DT_CENTER);
+
+            SelectObject(hdcMem, hMainFont);
+            SetTextColor(hdcMem, COLOR_TEXT_LOG);
+            RECT tr2 = { 50, 215, 535, 250 };
+            DrawTextW(hdcMem, L"Press [ ENTER ] to Play   |   Press [ ESC ] to Exit", -1, &tr2, DT_CENTER);
+
+            drawCanvasButton(hdcMem, btnStartRect, L"✦ ENTER THE ARENA ✦");
+            drawCanvasButton(hdcMem, btnExitRect, L"✕ Exit Game");
+        } else {
+            RECT arenaRc = { ARENA_X, ARENA_Y, ARENA_X + ARENA_W, ARENA_Y + ARENA_H };
+            HBRUSH arenaFloorB = CreateSolidBrush(COLOR_ARENA_FLOOR);
+            FillRect(hdcMem, &arenaRc, arenaFloorB);
+            DeleteObject(arenaFloorB);
+
+            HPEN gridPen = CreatePen(PS_SOLID, 1, COLOR_ARENA_GRID);
+            HPEN oldPen = (HPEN)SelectObject(hdcMem, gridPen);
+            for (int gx = ARENA_X + 40; gx < ARENA_X + ARENA_W; gx += 40) {
+                MoveToEx(hdcMem, gx, PLAY_TOP, NULL);
+                LineTo(hdcMem, gx, ARENA_Y + ARENA_H);
+            }
+            for (int gy = PLAY_TOP + 20; gy < ARENA_Y + ARENA_H; gy += 40) {
+                MoveToEx(hdcMem, ARENA_X, gy, NULL);
+                LineTo(hdcMem, ARENA_X + ARENA_W, gy);
+            }
+            SelectObject(hdcMem, oldPen);
+            DeleteObject(gridPen);
+
+            HPEN borderPen = CreatePen(PS_SOLID, 2, COLOR_BTN_BORDER);
+            oldPen = (HPEN)SelectObject(hdcMem, borderPen);
+            SelectObject(hdcMem, GetStockObject(NULL_BRUSH));
+            Rectangle(hdcMem, ARENA_X, ARENA_Y, ARENA_X + ARENA_W, ARENA_Y + ARENA_H);
+            SelectObject(hdcMem, oldPen);
+            DeleteObject(borderPen);
+
+            if (!isLevelUpPaused) {
+                if (eclipseRay.active) {
+                    HPEN rayPen = CreatePen(PS_SOLID, 5, RGB(220, 140, 255));
+                    oldPen = (HPEN)SelectObject(hdcMem, rayPen);
+                    MoveToEx(hdcMem, static_cast<int>(eclipseRay.x1), static_cast<int>(eclipseRay.y1), NULL);
+                    LineTo(hdcMem, static_cast<int>(eclipseRay.x2), static_cast<int>(eclipseRay.y2));
+                    SelectObject(hdcMem, oldPen);
+                    DeleteObject(rayPen);
+                }
+
+                if (companion.active) {
+                    drawCompanion(hdcMem, static_cast<int>(companion.x), static_cast<int>(companion.y));
+                }
+
+                drawHeroine(hdcMem, static_cast<int>(player.x), static_cast<int>(player.y), player.hurtFlash > 0);
+                if (!gameOver) {
+                    drawRival(hdcMem, static_cast<int>(enemy.x), static_cast<int>(enemy.y), enemy.hurtFlash > 0);
+                }
+
+                for (const auto& m : minions) {
+                    if (m.active) drawMinion(hdcMem, static_cast<int>(m.x), static_cast<int>(m.y), m.hurtFlash > 0);
+                }
+
+                for (const auto& pr : projectiles) {
+                    HBRUSH prB = CreateSolidBrush(COLOR_FAIRY_GLOW);
+                    SelectObject(hdcMem, prB);
+                    SelectObject(hdcMem, GetStockObject(NULL_PEN));
+                    Ellipse(hdcMem, static_cast<int>(pr.x - 3), static_cast<int>(pr.y - 3), 
+                                    static_cast<int>(pr.x + 3), static_cast<int>(pr.y + 3));
+                    DeleteObject(prB);
+                }
+
+                for (const auto& p : particles) {
+                    HBRUSH pBrush = CreateSolidBrush(p.color);
+                    SelectObject(hdcMem, pBrush);
+                    SelectObject(hdcMem, GetStockObject(NULL_PEN));
+                    Ellipse(hdcMem, static_cast<int>(p.x - p.size), static_cast<int>(p.y - p.size), 
+                                    static_cast<int>(p.x + p.size), static_cast<int>(p.y + p.size));
+                    DeleteObject(pBrush);
+                }
+
+                RECT hudBgRc = { ARENA_X + 2, ARENA_Y + 2, ARENA_X + ARENA_W - 2, PLAY_TOP };
+                HBRUSH hudBgB = CreateSolidBrush(RGB(20, 14, 34));
+                FillRect(hdcMem, &hudBgRc, hudBgB);
+                DeleteObject(hudBgB);
+
+                HPEN divPen = CreatePen(PS_SOLID, 1, RGB(55, 38, 80));
+                oldPen = (HPEN)SelectObject(hdcMem, divPen);
+                MoveToEx(hdcMem, ARENA_X + 2, PLAY_TOP, NULL);
+                LineTo(hdcMem, ARENA_X + ARENA_W - 2, PLAY_TOP);
+                SelectObject(hdcMem, oldPen);
+                DeleteObject(divPen);
+
+                SelectObject(hdcMem, hHeaderFont);
+                SetTextColor(hdcMem, COLOR_TEXT_HEADER);
+                std::wstring heroHud = L"✦ Lunaria Lv." + std::to_wstring(player.level) + 
+                                      L"   HP: " + std::to_wstring(player.hp) + L"/" + std::to_wstring(player.maxHp) + 
+                                      L"   EXP: " + std::to_wstring(player.exp) + L"/" + std::to_wstring(player.expNeeded);
+                if (companion.active) heroHud += L"  [✦ Sylph]";
+                TextOutW(hdcMem, ARENA_X + 10, ARENA_Y + 7, heroHud.c_str(), heroHud.length());
+
+                SetTextColor(hdcMem, COLOR_COIN_GOLD);
+                std::wstring coinHud = L"[ 🪙 Coins: " + std::to_wstring(player.gold) + L"g ]";
+                TextOutW(hdcMem, ARENA_X + ARENA_W - 145, ARENA_Y + 7, coinHud.c_str(), coinHud.length());
+            } else {
+                HBRUSH modalBg = CreateSolidBrush(RGB(38, 26, 58));
+                RECT modalRc = { ARENA_X + 30, ARENA_Y + 25, ARENA_X + ARENA_W - 30, ARENA_Y + ARENA_H - 18 };
+                FillRect(hdcMem, &modalRc, modalBg);
+                DeleteObject(modalBg);
+
+                HPEN modalBorder = CreatePen(PS_SOLID, 2, COLOR_STAR_GOLD);
+                oldPen = (HPEN)SelectObject(hdcMem, modalBorder);
+                SelectObject(hdcMem, GetStockObject(NULL_BRUSH));
+                Rectangle(hdcMem, modalRc.left, modalRc.top, modalRc.right, modalRc.bottom);
+                SelectObject(hdcMem, oldPen);
+                DeleteObject(modalBorder);
+
+                SelectObject(hdcMem, hHeaderFont);
+                SetTextColor(hdcMem, COLOR_STAR_GOLD);
+                RECT trHeader = { modalRc.left, modalRc.top + 16, modalRc.right, modalRc.top + 40 };
+                DrawTextW(hdcMem, L"✦ STAR MAIDEN'S SANCTUARY ✦", -1, &trHeader, DT_CENTER);
+
+                SetTextColor(hdcMem, COLOR_COIN_GOLD);
+                std::wstring bankStr = L"Your Coin Balance: " + std::to_wstring(player.gold) + L" Gold";
+                RECT trBank = { modalRc.left, modalRc.top + 38, modalRc.right, modalRc.top + 58 };
+                DrawTextW(hdcMem, bankStr.c_str(), -1, &trBank, DT_CENTER);
+
+                SelectObject(hdcMem, hMainFont);
+                SetTextColor(hdcMem, COLOR_TEXT_BODY);
+                TextOutW(hdcMem, modalRc.left + 40, modalRc.top + 65, L"[1] Upgrade Sword (+7 ATK) - 35g", 32);
+                TextOutW(hdcMem, modalRc.left + 40, modalRc.top + 95, L"[2] Enhance Armor (+30 Max HP) - 30g", 36);
+                TextOutW(hdcMem, modalRc.left + 40, modalRc.top + 125, L"[3] Brew Health Potion (+1) - 20g", 33);
+                TextOutW(hdcMem, modalRc.left + 40, modalRc.top + 155, L"[4] Summon / Empower Familiar - 50g", 35);
+
+                SelectObject(hdcMem, hHeaderFont);
+                SetTextColor(hdcMem, COLOR_TEXT_HEADER);
+                RECT trResume = { modalRc.left, modalRc.top + 192, modalRc.right, modalRc.top + 218 };
+                DrawTextW(hdcMem, L"Press [ENTER] to Resume Battle", -1, &trResume, DT_CENTER);
+            }
+
+            SelectObject(hdcMem, hMainFont);
+            SetTextColor(hdcMem, COLOR_TEXT_LOG);
+
+            float slashSec = player.attackCooldown / 60.0f;
+            float novaSec = player.novaCooldown / 60.0f;
+            float raySec = player.rayCooldown / 60.0f;
+
+            wchar_t cdBuf[256];
+            swprintf_s(cdBuf, 256, 
+                L"[SPACE] Slash: %ls | [Q] Nova: %ls | [R] Ray: %ls | [E] Potion (%d)",
+                (player.attackCooldown == 0 ? L"READY" : (std::to_wstring(slashSec).substr(0, 3) + L"s").c_str()),
+                (player.level < 2 ? L"Lv.2" : (player.novaCooldown == 0 ? L"READY" : (std::to_wstring(novaSec).substr(0, 3) + L"s").c_str())),
+                (player.level < 3 ? L"Lv.3" : (player.rayCooldown == 0 ? L"READY" : (std::to_wstring(raySec).substr(0, 3) + L"s").c_str())),
+                player.potions);
+
+            TextOutW(hdcMem, ARENA_X + 10, ARENA_Y + ARENA_H + 8, cdBuf, wcslen(cdBuf));
+
+            RECT logBoxRc = { ARENA_X, ARENA_Y + ARENA_H + 32, ARENA_X + ARENA_W, ARENA_Y + ARENA_H + 165 };
+            HBRUSH logBoxB = CreateSolidBrush(RGB(14, 10, 22));
+            FillRect(hdcMem, &logBoxRc, logBoxB);
+            DeleteObject(logBoxB);
+
+            HPEN logBorderP = CreatePen(PS_SOLID, 1, RGB(55, 40, 80));
+            oldPen = (HPEN)SelectObject(hdcMem, logBorderP);
+            SelectObject(hdcMem, GetStockObject(NULL_BRUSH));
+            Rectangle(hdcMem, logBoxRc.left, logBoxRc.top, logBoxRc.right, logBoxRc.bottom);
+            SelectObject(hdcMem, oldPen);
+            DeleteObject(logBorderP);
+
+            SelectObject(hdcMem, hLogFont);
+            SetTextColor(hdcMem, COLOR_TEXT_LOG);
+            int curY = logBoxRc.top + 6;
+            for (const auto& line : logLines) {
+                TextOutW(hdcMem, logBoxRc.left + 10, curY, line.c_str(), line.length());
+                curY += 16;
+            }
+
+            if (gameOver) {
+                drawCanvasButton(hdcMem, btnRestartRect, L"⟳ Reclaim Arena");
+            }
+        }
+
+        BitBlt(hdcWindow, 0, 0, winW, winH, hdcMem, 0, 0, SRCCOPY);
+
+        SelectObject(hdcMem, hOldBmp);
+        DeleteObject(hbmMem);
+        DeleteDC(hdcMem);
+        EndPaint(hwnd, &ps);
+        return 0;
+    }
+
+    case WM_DESTROY:
+        KillTimer(hwnd, TIMER_GAME_LOOP);
+        DeleteObject(hMainFont);
+        DeleteObject(hHeaderFont);
+        DeleteObject(hEnemyTagFont);
+        DeleteObject(hTitleFont);
+        DeleteObject(hLogFont);
+        PostQuitMessage(0);
+        break;
+
+    default:
+        return DefWindowProcW(hwnd, msg, wParam, lParam);
+    }
+    return 0;
+}
+
+int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow) {
+    std::srand((unsigned)std::time(nullptr));
+
+    const wchar_t CLASS_NAME[] = L"LunariaArenaClass";
+
+    WNDCLASSW wc = {};
+    wc.lpfnWndProc = WndProc;
+    wc.hInstance = hInstance;
+    wc.lpszClassName = CLASS_NAME;
+    wc.hCursor = LoadCursor(NULL, IDC_ARROW);
+    wc.hbrBackground = NULL;
+
+    RegisterClassW(&wc);
+
+    hwndMain = CreateWindowExW(
+        0, CLASS_NAME, L"Lunaria: Arena of the Star Maiden",
+        WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
+        CW_USEDEFAULT, CW_USEDEFAULT, 600, 510,
+        NULL, NULL, hInstance, NULL
+    );
+
+    if (!hwndMain) return 0;
+
+    ShowWindow(hwndMain, nCmdShow);
+    UpdateWindow(hwndMain);
+
+    MSG msg = {};
+    while (GetMessageW(&msg, NULL, 0, 0)) {
+        TranslateMessage(&msg);
+        DispatchMessageW(&msg);
+    }
+
+    return 0;
+}

@@ -1,0 +1,1049 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Lunaria: Arena of the Star Maiden</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+    }
+    body {
+      background-color: #0d0814;
+      color: #f5ebff;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 16px;
+    }
+    .top-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      width: 600px;
+      margin-bottom: 10px;
+    }
+    .title-tag {
+      font-size: 15px;
+      font-weight: 600;
+      color: #ffb4d7;
+    }
+    .btn-download {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: #4e2e6e;
+      color: #f5ebff;
+      border: 1px solid #b48cdc;
+      padding: 6px 14px;
+      border-radius: 6px;
+      text-decoration: none;
+      font-size: 13px;
+      font-weight: 600;
+      transition: all 0.2s ease;
+    }
+    .btn-download:hover {
+      background: #7348a0;
+      box-shadow: 0 0 10px rgba(180, 140, 220, 0.4);
+    }
+    #game-container {
+      border: 2px solid #b48cdc;
+      box-shadow: 0 0 25px rgba(180, 140, 220, 0.35);
+      border-radius: 8px;
+      background: #120c1c;
+    }
+    canvas {
+      display: block;
+      border-radius: 6px;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="top-bar">
+    <span class="title-tag">✧ Lunaria: Arena of the Star Maiden</span>
+    <a href="lunaria.exe" download class="btn-download">⬇ Download Windows (.exe)</a>
+  </div>
+
+  <div id="game-container">
+    <canvas id="gameCanvas" width="600" height="510"></canvas>
+  </div>
+
+  <script>
+    const canvas = document.getElementById("gameCanvas");
+    const ctx = canvas.getContext("2d");
+
+    const COLOR_WINDOW_BG   = "#120c1c";
+    const COLOR_ARENA_FLOOR = "#1a122a";
+    const COLOR_ARENA_GRID  = "#281c3e";
+    const COLOR_TEXT_HEADER = "#ffb4d7";
+    const COLOR_TEXT_BODY   = "#f5ebff";
+    const COLOR_TEXT_LOG    = "#d2c3ff";
+    const COLOR_STAR_GOLD   = "#ffd878";
+    const COLOR_COIN_GOLD   = "#ffcd4b";
+
+    const COLOR_CAPE        = "#962d41";
+    const COLOR_ARMOR_STEEL = "#bec3d2";
+    const COLOR_TUNIC       = "#41507d";
+    const COLOR_SKIN        = "#ffdcc3";
+    const COLOR_HAIR        = "#f5cd78";
+    const COLOR_SHIELD_WOOD = "#6e462d";
+    const COLOR_SHIELD_FACE = "#3c5fa0";
+    const COLOR_SWORD_STEEL = "#e6ebfa";
+
+    const COLOR_RIVAL_ARMOR = "#2d2337";
+    const COLOR_RIVAL_CAPE  = "#6e192d";
+    const COLOR_RIVAL_SKIN  = "#d2becd";
+    const COLOR_RIVAL_HAIR  = "#140f19";
+    const COLOR_RIVAL_EYES  = "#ff3c64";
+
+    const COLOR_FAIRY_BODY  = "#b4ebff";
+    const COLOR_FAIRY_WING  = "#dcf5ff";
+    const COLOR_FAIRY_HAIR  = "#ffd7e6";
+    const COLOR_FAIRY_GLOW  = "#64c8ff";
+
+    const COLOR_BTN_NORMAL  = "#4e2e6e";
+    const COLOR_BTN_BORDER  = "#b48cdc";
+
+    const ARENA_X = 25, ARENA_Y = 25, ARENA_W = 535, ARENA_H = 265;
+    const PLAY_TOP = ARENA_Y + 34;
+
+    const btnStart   = { x: 190, y: 270, w: 200, h: 46 };
+    const btnRestart = { x: 190, y: 210, w: 200, h: 42 };
+
+    let gameStarted = false;
+    let gameOver = false;
+    let isLevelUpPaused = false;
+    let keys = {};
+    let logLines = [];
+
+    let player = {
+      x: ARENA_X + 80,
+      y: PLAY_TOP + 80,
+      radius: 16,
+      hp: 100,
+      maxHp: 100,
+      attack: 24,
+      weaponTier: 1,
+      armorTier: 1,
+      level: 1,
+      exp: 0,
+      expNeeded: 40,
+      potions: 3,
+      gold: 40,
+      wins: 0,
+      attackCooldown: 0,
+      novaCooldown: 0,
+      rayCooldown: 0,
+      hurtFlash: 0,
+      facing: 1,
+      walkCycle: 0,
+      isMoving: false
+    };
+
+    let companion = {
+      active: false,
+      x: 100,
+      y: 100,
+      wingTimer: 0,
+      attackTimer: 0,
+      tier: 0
+    };
+
+    let enemy = {
+      name: "",
+      weaponName: "Void Scythe",
+      weaponType: 0,
+      level: 1,
+      hp: 50,
+      maxHp: 50,
+      attack: 8,
+      attackReach: 54,
+      x: ARENA_X + ARENA_W - 75,
+      y: PLAY_TOP + 80,
+      radius: 16,
+      hurtFlash: 0,
+      facing: -1,
+      walkCycle: 0,
+      attackCooldown: 0
+    };
+
+    let minions = [];
+    let projectiles = [];
+    let particles = [];
+    let eclipseRay = { active: false, x1: 0, y1: 0, x2: 0, y2: 0, timer: 0 };
+
+    function appendLog(line) {
+      logLines.push(line);
+      if (logLines.length > 7) logLines.shift();
+    }
+
+    function spawnParticles(x, y, count, color, maxSpeed, lifeSpan, size = 3) {
+      for (let i = 0; i < count; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = Math.random() * maxSpeed + 0.5;
+        particles.push({
+          x, y,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed,
+          life: lifeSpan + Math.floor(Math.random() * 6),
+          color,
+          size
+        });
+      }
+    }
+
+    function generateMonsterName() {
+      const prefixes = ["Lilith", "Morrigan", "Morgana", "Selene", "Nyx", "Astrid", "Isolde", "Vespera", "Ravena", "Freya"];
+      const titles = ["the Moonlit Siren", "the Shadow Witch", "the Blood Empress", "the Frost Valkyrie", "the Twilight Stalker"];
+      return prefixes[Math.floor(Math.random() * prefixes.length)] + " " + titles[Math.floor(Math.random() * titles.length)];
+    }
+
+    function spawnEnemy() {
+      enemy.name = generateMonsterName();
+      enemy.level = 1 + Math.floor(player.wins / 2);
+      enemy.maxHp = 45 + (enemy.level * 25);
+      enemy.hp = enemy.maxHp;
+      enemy.facing = -1;
+      enemy.walkCycle = 0;
+      enemy.x = ARENA_X + ARENA_W - 75;
+      enemy.y = PLAY_TOP + 80;
+      enemy.hurtFlash = 0;
+
+      const wChoice = Math.floor(Math.random() * 3);
+      enemy.weaponType = wChoice;
+      if (wChoice === 0) {
+        enemy.weaponName = "Void Scythe";
+        enemy.attackReach = 54;
+        enemy.attack = 8 + (enemy.level * 3);
+      } else if (wChoice === 1) {
+        enemy.weaponName = "Blood Cleaver";
+        enemy.attackReach = 44;
+        enemy.attack = 12 + (enemy.level * 4);
+      } else {
+        enemy.weaponName = "Obsidian Spear";
+        enemy.attackReach = 62;
+        enemy.attack = 7 + (enemy.level * 3);
+      }
+
+      minions = [];
+      const minionCount = enemy.level > 1 ? Math.min(3, enemy.level - 1) : 0;
+      for (let i = 0; i < minionCount; i++) {
+        minions.push({
+          x: enemy.x + (Math.random() * 30 - 15),
+          y: enemy.y + (i * 40 - (minionCount * 18)),
+          radius: 10,
+          hp: 18 + enemy.level * 8,
+          maxHp: 18 + enemy.level * 8,
+          attack: 4 + enemy.level * 2,
+          attackCooldown: 0,
+          hurtFlash: 0,
+          active: true
+        });
+      }
+
+      appendLog(`✦ [Lv.${enemy.level}] ${enemy.name} enters with ${enemy.weaponName}!`);
+      if (minionCount > 0) appendLog(` [!] Accompanied by ${minionCount} Shadow Thralls!`);
+    }
+
+    function triggerLevelUp() {
+      player.level++;
+      player.maxHp += 25;
+      player.hp = player.maxHp;
+      player.attack += 5;
+      player.expNeeded = Math.floor(player.expNeeded * 1.6);
+      isLevelUpPaused = true;
+      spawnParticles(player.x, player.y, 45, COLOR_STAR_GOLD, 4.5, 25, 4);
+      appendLog(`★ LEVEL UP! Reached Level ${player.level}! ★`);
+      appendLog(`> Sanctuary open! Press [1-4] to upgrade, [ENTER] to resume.`);
+    }
+
+    function restartGame() {
+      player.level = 1;
+      player.exp = 0;
+      player.expNeeded = 40;
+      player.maxHp = 100;
+      player.hp = player.maxHp;
+      player.attack = 24;
+      player.weaponTier = 1;
+      player.armorTier = 1;
+      player.potions = 3;
+      player.gold = 40;
+      player.wins = 0;
+      player.x = ARENA_X + 80;
+      player.y = PLAY_TOP + 80;
+      player.facing = 1;
+      player.walkCycle = 0;
+      player.isMoving = false;
+      player.attackCooldown = 0;
+      player.novaCooldown = 0;
+      player.rayCooldown = 0;
+      companion.active = false;
+      companion.tier = 0;
+      minions = [];
+      projectiles = [];
+      particles = [];
+      logLines = [];
+      eclipseRay.active = false;
+      gameOver = false;
+      isLevelUpPaused = false;
+
+      appendLog("✧ ARENA OF THE STAR MAIDEN ✧");
+      appendLog("Controls: [W,A,S,D] Move | [SPACE] Slash | [Q] Nova | [R] Ray | [E] Potion");
+      spawnEnemy();
+    }
+
+    function onEnemyDefeated() {
+      enemy.hp = 0;
+      player.wins++;
+      const bounty = 25 + Math.floor(Math.random() * 15);
+      const expGained = 25 + (enemy.level * 15);
+      player.gold += bounty;
+      player.exp += expGained;
+
+      spawnParticles(enemy.x, enemy.y, 40, "#ff5a96", 3.5, 24, 4);
+      appendLog(`[VICTORY] Rival defeated! +${bounty}g | +${expGained} EXP`);
+
+      if (player.exp >= player.expNeeded) {
+        player.exp -= player.expNeeded;
+        triggerLevelUp();
+      } else {
+        spawnEnemy();
+      }
+    }
+
+    function playerAttack() {
+      if (gameOver || !gameStarted || isLevelUpPaused || player.attackCooldown > 0) return;
+      player.attackCooldown = 18;
+      spawnParticles(player.x + player.facing * 16, player.y, 10, COLOR_TEXT_HEADER, 2.5, 10, 3);
+
+      const dx = enemy.x - player.x;
+      const dy = enemy.y - player.y;
+      if (Math.hypot(dx, dy) < 68) {
+        const dmg = player.attack + Math.floor(Math.random() * 8);
+        enemy.hp -= dmg;
+        enemy.hurtFlash = 8;
+        spawnParticles(enemy.x, enemy.y, 18, COLOR_STAR_GOLD, 3.2, 14, 4);
+        appendLog(`> Astral Blade hit ${enemy.name} for ${dmg} dmg!`);
+        if (enemy.hp <= 0) onEnemyDefeated();
+      }
+
+      minions.forEach(m => {
+        if (!m.active) return;
+        if (Math.hypot(m.x - player.x, m.y - player.y) < 64) {
+          const dmg = player.attack + Math.floor(Math.random() * 6);
+          m.hp -= dmg;
+          m.hurtFlash = 8;
+          if (m.hp <= 0) {
+            m.active = false;
+            player.gold += 8;
+            player.exp += 10;
+          }
+        }
+      });
+    }
+
+    function playerCastNova() {
+      if (gameOver || !gameStarted || isLevelUpPaused) return;
+      if (player.level < 2) {
+        appendLog("[!] Starlight Nova unlocks at Level 2!");
+        return;
+      }
+      if (player.novaCooldown > 0) return;
+
+      player.novaCooldown = 120;
+      spawnParticles(player.x, player.y, 36, COLOR_STAR_GOLD, 4.0, 22, 4);
+
+      if (Math.hypot(enemy.x - player.x, enemy.y - player.y) < 135) {
+        const dmg = Math.floor(player.attack * 1.6) + Math.floor(Math.random() * 10);
+        enemy.hp -= dmg;
+        enemy.hurtFlash = 10;
+        spawnParticles(enemy.x, enemy.y, 25, "#ffe664", 3.8, 18, 4);
+        appendLog(`> Starlight Nova blasted foe for ${dmg} holy dmg!`);
+        if (enemy.hp <= 0) onEnemyDefeated();
+      }
+
+      minions.forEach(m => {
+        if (m.active && Math.hypot(m.x - player.x, m.y - player.y) < 135) {
+          m.hp -= (player.attack + 12);
+          m.hurtFlash = 10;
+          if (m.hp <= 0) {
+            m.active = false;
+            player.gold += 8;
+            player.exp += 10;
+          }
+        }
+      });
+    }
+
+    function playerCastRay() {
+      if (gameOver || !gameStarted || isLevelUpPaused) return;
+      if (player.level < 3) {
+        appendLog("[!] Eclipse Ray unlocks at Level 3!");
+        return;
+      }
+      if (player.rayCooldown > 0) return;
+
+      player.rayCooldown = 180;
+      eclipseRay.active = true;
+      eclipseRay.x1 = player.x;
+      eclipseRay.y1 = player.y;
+      eclipseRay.x2 = enemy.x;
+      eclipseRay.y2 = enemy.y;
+      eclipseRay.timer = 12;
+
+      const dmg = (player.attack * 2) + Math.floor(Math.random() * 15);
+      enemy.hp -= dmg;
+      enemy.hurtFlash = 12;
+      spawnParticles(enemy.x, enemy.y, 30, "#dc78ff", 4.2, 20, 4);
+      appendLog(`> Eclipse Ray pierced ${enemy.name} for ${dmg} cosmic dmg!`);
+      if (enemy.hp <= 0) onEnemyDefeated();
+    }
+
+    function playerDrinkPotion() {
+      if (gameOver || !gameStarted || isLevelUpPaused || player.potions <= 0) return;
+      player.potions--;
+      const healed = 35 + (player.level * 6);
+      player.hp = Math.min(player.maxHp, player.hp + healed);
+      spawnParticles(player.x, player.y, 24, "#78ffb4", 2.2, 18, 3);
+      appendLog(`> Quaffed Potion! Restored ${healed} HP.`);
+    }
+
+    window.addEventListener("keydown", (e) => {
+      keys[e.key.toLowerCase()] = true;
+      if (e.key === "Enter") {
+        if (!gameStarted) {
+          gameStarted = true;
+          restartGame();
+        } else if (isLevelUpPaused) {
+          isLevelUpPaused = false;
+          appendLog("> Resuming battle!");
+          spawnEnemy();
+        } else if (gameOver) {
+          restartGame();
+        }
+      }
+
+      if (isLevelUpPaused) {
+        if (e.key === "1") {
+          if (player.gold >= 35) {
+            player.gold -= 35;
+            player.weaponTier++;
+            player.attack += 7;
+            appendLog(`> Honed Sword (+7 ATK)!`);
+          } else appendLog("[!] Need 35g for Sword!");
+        } else if (e.key === "2") {
+          if (player.gold >= 30) {
+            player.gold -= 30;
+            player.armorTier++;
+            player.maxHp += 30;
+            player.hp = player.maxHp;
+            appendLog(`> Enhanced Armor (+30 Max HP)!`);
+          } else appendLog("[!] Need 30g for Armor!");
+        } else if (e.key === "3") {
+          if (player.gold >= 20) {
+            player.gold -= 20;
+            player.potions++;
+            appendLog(`> Brewed Health Potion (+1)!`);
+          } else appendLog("[!] Need 20g for Potion!");
+        } else if (e.key === "4") {
+          if (player.gold >= 50) {
+            player.gold -= 50;
+            companion.active = true;
+            companion.tier++;
+            companion.x = player.x - 30;
+            companion.y = player.y - 25;
+            appendLog(`> Sylph empowered to Tier ${companion.tier}!`);
+          } else appendLog("[!] Need 50g for Sylph!");
+        }
+        return;
+      }
+
+      if (e.code === "Space") playerAttack();
+      if (e.key.toLowerCase() === "q") playerCastNova();
+      if (e.key.toLowerCase() === "r") playerCastRay();
+      if (e.key.toLowerCase() === "e") playerDrinkPotion();
+    });
+
+    window.addEventListener("keyup", (e) => {
+      keys[e.key.toLowerCase()] = false;
+    });
+
+    canvas.addEventListener("click", (e) => {
+      const rect = canvas.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+
+      if (!gameStarted) {
+        if (mx >= btnStart.x && mx <= btnStart.x + btnStart.w && my >= btnStart.y && my <= btnStart.y + btnStart.h) {
+          gameStarted = true;
+          restartGame();
+        }
+      } else if (gameOver) {
+        if (mx >= btnRestart.x && mx <= btnRestart.x + btnRestart.w && my >= btnRestart.y && my <= btnRestart.y + btnRestart.h) {
+          restartGame();
+        }
+      }
+    });
+
+    function update() {
+      if (!gameStarted || gameOver || isLevelUpPaused) return;
+
+      const SPEED = 3.8;
+      let vx = 0, vy = 0;
+      if (keys["w"] || keys["arrowup"])    vy -= SPEED;
+      if (keys["s"] || keys["arrowdown"])  vy += SPEED;
+      if (keys["a"] || keys["arrowleft"])  { vx -= SPEED; player.facing = -1; }
+      if (keys["d"] || keys["arrowright"]) { vx += SPEED; player.facing =  1; }
+
+      player.isMoving = (vx !== 0 || vy !== 0);
+      if (player.isMoving) player.walkCycle += 0.25;
+      else player.walkCycle = 0;
+
+      player.x = Math.max(ARENA_X + player.radius + 6, Math.min(ARENA_X + ARENA_W - player.radius - 6, player.x + vx));
+      player.y = Math.max(PLAY_TOP + player.radius + 6, Math.min(ARENA_Y + ARENA_H - player.radius - 6, player.y + vy));
+
+      if (companion.active) {
+        companion.wingTimer += 0.35;
+        const cdx = (player.x - 28 * player.facing) - companion.x;
+        const cdy = (player.y - 20) - companion.y;
+        companion.x += cdx * 0.08;
+        companion.y += cdy * 0.08;
+
+        companion.attackTimer++;
+        if (companion.attackTimer >= 45) {
+          companion.attackTimer = 0;
+          let tx = enemy.x, ty = enemy.y;
+          const targetMinion = minions.find(m => m.active);
+          if (targetMinion) { tx = targetMinion.x; ty = targetMinion.y; }
+
+          const dist = Math.hypot(tx - companion.x, ty - companion.y);
+          if (dist > 0) {
+            projectiles.push({
+              x: companion.x,
+              y: companion.y,
+              vx: ((tx - companion.x) / dist) * 6.5,
+              vy: ((ty - companion.y) / dist) * 6.5,
+              damage: 10 + companion.tier * 6,
+              life: 60
+            });
+          }
+        }
+      }
+
+      const dx = player.x - enemy.x;
+      const dy = player.y - enemy.y;
+      const dist = Math.hypot(dx, dy);
+
+      enemy.facing = dx >= 0 ? 1 : -1;
+      if (dist > 38) {
+        const espeed = 1.6 + (enemy.level * 0.15);
+        enemy.x += (dx / dist) * espeed;
+        enemy.y += (dy / dist) * espeed;
+        enemy.walkCycle += 0.2;
+      }
+      enemy.x = Math.max(ARENA_X + enemy.radius + 6, Math.min(ARENA_X + ARENA_W - enemy.radius - 6, enemy.x));
+      enemy.y = Math.max(PLAY_TOP + enemy.radius + 6, Math.min(ARENA_Y + ARENA_H - enemy.radius - 6, enemy.y));
+
+      minions.forEach(m => {
+        if (!m.active) return;
+        const mdist = Math.hypot(player.x - m.x, player.y - m.y);
+        if (mdist > 20) {
+          m.x += ((player.x - m.x) / mdist) * 2.2;
+          m.y += ((player.y - m.y) / mdist) * 2.2;
+        }
+        if (m.attackCooldown > 0) m.attackCooldown--;
+        if (m.hurtFlash > 0) m.hurtFlash--;
+
+        if (mdist < 24 && m.attackCooldown === 0) {
+          player.hp -= m.attack;
+          player.hurtFlash = 6;
+          m.attackCooldown = 50;
+          spawnParticles(player.x, player.y, 8, "#ff3c3c", 2.0, 10, 2);
+          if (player.hp <= 0) {
+            player.hp = 0;
+            gameOver = true;
+            appendLog("[DEFEAT] Slain by minions! Press [ENTER] to restart.");
+          }
+        }
+      });
+
+      for (let i = projectiles.length - 1; i >= 0; i--) {
+        const p = projectiles[i];
+        p.x += p.vx;
+        p.y += p.vy;
+        p.life--;
+
+        let hit = false;
+        if (Math.hypot(enemy.x - p.x, enemy.y - p.y) < enemy.radius + 6) {
+          enemy.hp -= p.damage;
+          enemy.hurtFlash = 8;
+          spawnParticles(enemy.x, enemy.y, 10, COLOR_FAIRY_GLOW, 2.5, 10, 3);
+          hit = true;
+          if (enemy.hp <= 0) onEnemyDefeated();
+        }
+
+        if (!hit) {
+          for (let m of minions) {
+            if (m.active && Math.hypot(m.x - p.x, m.y - p.y) < m.radius + 6) {
+              m.hp -= p.damage;
+              m.hurtFlash = 8;
+              hit = true;
+              if (m.hp <= 0) {
+                m.active = false;
+                player.gold += 8;
+                player.exp += 10;
+              }
+              break;
+            }
+          }
+        }
+
+        if (hit || p.life <= 0) projectiles.splice(i, 1);
+      }
+
+      if (enemy.attackCooldown > 0) enemy.attackCooldown--;
+      if (player.attackCooldown > 0) player.attackCooldown--;
+      if (player.novaCooldown > 0) player.novaCooldown--;
+      if (player.rayCooldown > 0) player.rayCooldown--;
+      if (player.hurtFlash > 0) player.hurtFlash--;
+      if (enemy.hurtFlash > 0) enemy.hurtFlash--;
+
+      for (let i = particles.length - 1; i >= 0; i--) {
+        const pt = particles[i];
+        pt.x += pt.vx;
+        pt.y += pt.vy;
+        pt.life--;
+        if (pt.life <= 0) particles.splice(i, 1);
+      }
+
+      if (eclipseRay.active) {
+        eclipseRay.timer--;
+        if (eclipseRay.timer <= 0) eclipseRay.active = false;
+      }
+
+      if (dist <= enemy.attackReach && enemy.attackCooldown === 0) {
+        const dmg = enemy.attack + Math.floor(Math.random() * 5);
+        player.hp -= dmg;
+        player.hurtFlash = 8;
+        enemy.attackCooldown = 45;
+        spawnParticles(player.x, player.y, 16, "#ff3c5a", 2.8, 15, 3);
+        appendLog(`[!] ${enemy.name} struck with ${enemy.weaponName} for ${dmg} dmg!`);
+        if (player.hp <= 0) {
+          player.hp = 0;
+          gameOver = true;
+          appendLog("[DEFEAT] Fallen in battle! Press [ENTER] to restart.");
+        }
+      }
+    }
+
+    function drawHeroine(cx, cy, hurt) {
+      const dir = player.facing;
+      const bob = Math.sin(player.walkCycle) * 2;
+      const legOffset = Math.cos(player.walkCycle) * 3;
+
+      ctx.fillStyle = hurt ? "#ff5a5a" : COLOR_CAPE;
+      ctx.beginPath();
+      ctx.moveTo(cx - 10, cy - 6 + bob);
+      ctx.lineTo(cx + 10, cy - 6 + bob);
+      ctx.lineTo(cx + 8 * dir, cy + 18);
+      ctx.lineTo(cx - 12 * dir, cy + 18);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.fillStyle = "#372d28";
+      ctx.beginPath();
+      ctx.ellipse(cx - 4 + legOffset, cy + 18, 3, 4, 0, 0, Math.PI * 2);
+      ctx.ellipse(cx + 4 - legOffset, cy + 18, 3, 4, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = COLOR_TUNIC;
+      ctx.beginPath();
+      ctx.ellipse(cx, cy + 4 + bob, 9, 10, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = COLOR_ARMOR_STEEL;
+      ctx.strokeStyle = "#e1e6f5";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.ellipse(cx, cy + 2 + bob, 8, 7, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.strokeStyle = COLOR_COIN_GOLD;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(cx - 7, cy + 8 + bob);
+      ctx.lineTo(cx + 7, cy + 8 + bob);
+      ctx.stroke();
+
+      ctx.fillStyle = COLOR_SKIN;
+      ctx.beginPath();
+      ctx.ellipse(cx, cy - 9 + bob, 7, 7, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = COLOR_HAIR;
+      ctx.beginPath();
+      ctx.ellipse(cx, cy - 13 + bob, 8, 5, 0, 0, Math.PI * 2);
+      ctx.ellipse(cx - 6 * dir, cy - 11 + bob, 3, 5, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      const shX = cx - 12 * dir;
+      const shY = cy + 2 + bob;
+      ctx.fillStyle = COLOR_SHIELD_WOOD;
+      ctx.strokeStyle = COLOR_STAR_GOLD;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.ellipse(shX, shY, 6, 7, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = COLOR_SHIELD_FACE;
+      ctx.beginPath();
+      ctx.ellipse(shX, shY, 3, 4, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      const swX = cx + 10 * dir;
+      const swY = cy + 4 + bob;
+      ctx.strokeStyle = COLOR_COIN_GOLD;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(swX - 3, swY - 2);
+      ctx.lineTo(swX + 3, swY - 2);
+      ctx.stroke();
+
+      ctx.strokeStyle = player.weaponTier > 1 ? "#fff0a0" : COLOR_SWORD_STEEL;
+      ctx.beginPath();
+      ctx.moveTo(swX, swY - 2);
+      ctx.lineTo(swX + 4 * dir, swY - 20);
+      ctx.stroke();
+    }
+
+    function drawCompanion(cx, cy) {
+      const flutter = Math.sin(companion.wingTimer) * 6;
+
+      ctx.fillStyle = COLOR_FAIRY_GLOW;
+      ctx.beginPath();
+      ctx.arc(cx, cy, 14, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = COLOR_FAIRY_WING;
+      ctx.strokeStyle = "#b4e6ff";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.ellipse(cx - 10, cy - 5 - flutter, 7, 4, 0, 0, Math.PI * 2);
+      ctx.ellipse(cx + 10, cy - 5 + flutter, 7, 4, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = COLOR_FAIRY_BODY;
+      ctx.beginPath();
+      ctx.ellipse(cx, cy + 2, 5, 6, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = COLOR_SKIN;
+      ctx.beginPath();
+      ctx.arc(cx, cy - 7, 4, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = COLOR_FAIRY_HAIR;
+      ctx.beginPath();
+      ctx.arc(cx, cy - 10, 5, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.strokeStyle = COLOR_STAR_GOLD;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.ellipse(cx, cy - 14, 6, 2, 0, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    function drawRival(cx, cy, hurt) {
+      const dir = enemy.facing;
+      const bob = Math.sin(enemy.walkCycle) * 2;
+      const legOffset = Math.cos(enemy.walkCycle) * 3;
+
+      ctx.fillStyle = hurt ? "#ff5050" : "#321428";
+      ctx.beginPath();
+      ctx.arc(cx, cy, 22, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = COLOR_RIVAL_CAPE;
+      ctx.beginPath();
+      ctx.moveTo(cx - 11, cy - 6 + bob);
+      ctx.lineTo(cx + 11, cy - 6 + bob);
+      ctx.lineTo(cx + 12 * dir, cy + 20);
+      ctx.lineTo(cx - 8 * dir, cy + 20);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.fillStyle = "#1e1423";
+      ctx.beginPath();
+      ctx.ellipse(cx - 4 + legOffset, cy + 18, 4, 4, 0, 0, Math.PI * 2);
+      ctx.ellipse(cx + 4 - legOffset, cy + 18, 4, 4, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = COLOR_RIVAL_ARMOR;
+      ctx.strokeStyle = "#a03c5f";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.ellipse(cx, cy + 4 + bob, 9, 10, 0, 0, Math.PI * 2);
+      ctx.ellipse(cx - 10, cy - 3 + bob, 4, 5, 0, 0, Math.PI * 2);
+      ctx.ellipse(cx + 10, cy - 3 + bob, 4, 5, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = COLOR_RIVAL_SKIN;
+      ctx.beginPath();
+      ctx.ellipse(cx, cy - 9 + bob, 7, 7, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = COLOR_RIVAL_HAIR;
+      ctx.beginPath();
+      ctx.ellipse(cx, cy - 13 + bob, 8, 5, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.strokeStyle = "#dc3c64";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(cx - 6, cy - 15 + bob);
+      ctx.lineTo(cx - 12, cy - 26 + bob);
+      ctx.moveTo(cx + 6, cy - 15 + bob);
+      ctx.lineTo(cx + 12, cy - 26 + bob);
+      ctx.stroke();
+
+      ctx.fillStyle = COLOR_RIVAL_EYES;
+      const eyeDir = dir === 1 ? 1 : -3;
+      ctx.fillRect(cx + eyeDir - 2, cy - 9 + bob, 2, 2);
+      ctx.fillRect(cx + eyeDir + 2, cy - 9 + bob, 2, 2);
+
+      const wepX = cx + 12 * dir;
+      const wepY = cy + 4 + bob;
+      if (enemy.weaponType === 0) {
+        ctx.strokeStyle = "#b4aad2";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(wepX, wepY + 14);
+        ctx.lineTo(wepX, wepY - 22);
+        ctx.arc(wepX, wepY - 20, 10, Math.PI, Math.PI * 1.5, false);
+        ctx.stroke();
+      } else if (enemy.weaponType === 1) {
+        ctx.strokeStyle = "#f0465f";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(wepX - 2, wepY + 8);
+        ctx.lineTo(wepX + 6 * dir, wepY - 18);
+        ctx.lineTo(wepX + 14 * dir, wepY - 10);
+        ctx.stroke();
+      } else {
+        ctx.strokeStyle = "#e6ebfa";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(wepX - 4 * dir, wepY + 16);
+        ctx.lineTo(wepX + 10 * dir, wepY - 26);
+        ctx.stroke();
+      }
+
+      const tagX = cx - 45, tagY = cy - 44;
+      ctx.fillStyle = "#180e26";
+      ctx.fillRect(tagX - 4, tagY - 2, 98, 26);
+      ctx.strokeStyle = "#b4325a";
+      ctx.lineWidth = 1;
+      ctx.strokeRect(tagX - 4, tagY - 2, 98, 26);
+
+      ctx.fillStyle = "#ff8cb4";
+      ctx.font = "bold 11px Segoe UI";
+      ctx.fillText(`[Lv.${enemy.level}] ${enemy.name.substr(0, 10)}`, tagX, tagY + 10);
+
+      ctx.fillStyle = "#281423";
+      ctx.fillRect(tagX, tagY + 14, 86, 5);
+      const pct = Math.max(0, Math.min(1, enemy.hp / enemy.maxHp));
+      ctx.fillStyle = "#ff3c5a";
+      ctx.fillRect(tagX, tagY + 14, Math.floor(86 * pct), 5);
+    }
+
+    function render() {
+      ctx.fillStyle = COLOR_WINDOW_BG;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      if (!gameStarted) {
+        ctx.fillStyle = COLOR_TEXT_HEADER;
+        ctx.font = "bold 26px Segoe UI";
+        ctx.textAlign = "center";
+        ctx.fillText("✧ LUNARIA ✧", 300, 140);
+        ctx.fillText("Arena of the Star Maiden", 300, 175);
+
+        ctx.fillStyle = COLOR_TEXT_LOG;
+        ctx.font = "14px Segoe UI";
+        ctx.fillText("Press [ ENTER ] or Click to Enter the Arena", 300, 230);
+
+        ctx.fillStyle = COLOR_BTN_NORMAL;
+        ctx.fillRect(btnStart.x, btnStart.y, btnStart.w, btnStart.h);
+        ctx.strokeStyle = COLOR_BTN_BORDER;
+        ctx.strokeRect(btnStart.x, btnStart.y, btnStart.w, btnStart.h);
+
+        ctx.fillStyle = COLOR_TEXT_BODY;
+        ctx.font = "bold 14px Segoe UI";
+        ctx.fillText("✦ ENTER THE ARENA ✦", 300, 298);
+        return;
+      }
+
+      ctx.fillStyle = COLOR_ARENA_FLOOR;
+      ctx.fillRect(ARENA_X, ARENA_Y, ARENA_W, ARENA_H);
+
+      ctx.strokeStyle = COLOR_ARENA_GRID;
+      ctx.lineWidth = 1;
+      for (let gx = ARENA_X + 40; gx < ARENA_X + ARENA_W; gx += 40) {
+        ctx.beginPath();
+        ctx.moveTo(gx, PLAY_TOP);
+        ctx.lineTo(gx, ARENA_Y + ARENA_H);
+        ctx.stroke();
+      }
+      for (let gy = PLAY_TOP + 20; gy < ARENA_Y + ARENA_H; gy += 40) {
+        ctx.beginPath();
+        ctx.moveTo(ARENA_X, gy);
+        ctx.lineTo(ARENA_X + ARENA_W, gy);
+        ctx.stroke();
+      }
+
+      ctx.strokeStyle = COLOR_BTN_BORDER;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(ARENA_X, ARENA_Y, ARENA_W, ARENA_H);
+
+      if (!isLevelUpPaused) {
+        if (eclipseRay.active) {
+          ctx.strokeStyle = "#dc8cff";
+          ctx.lineWidth = 5;
+          ctx.beginPath();
+          ctx.moveTo(eclipseRay.x1, eclipseRay.y1);
+          ctx.lineTo(eclipseRay.x2, eclipseRay.y2);
+          ctx.stroke();
+        }
+
+        if (companion.active) drawCompanion(companion.x, companion.y);
+        drawHeroine(player.x, player.y, player.hurtFlash > 0);
+        if (!gameOver) drawRival(enemy.x, enemy.y, enemy.hurtFlash > 0);
+
+        minions.forEach(m => {
+          if (!m.active) return;
+          ctx.fillStyle = m.hurtFlash > 0 ? "#ff5050" : "#8c1e3c";
+          ctx.beginPath();
+          ctx.arc(m.x, m.y, 8, 0, Math.PI * 2);
+          ctx.fill();
+        });
+
+        projectiles.forEach(p => {
+          ctx.fillStyle = COLOR_FAIRY_GLOW;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+          ctx.fill();
+        });
+
+        particles.forEach(pt => {
+          ctx.fillStyle = pt.color;
+          ctx.beginPath();
+          ctx.arc(pt.x, pt.y, pt.size, 0, Math.PI * 2);
+          ctx.fill();
+        });
+
+        ctx.fillStyle = "#140e22";
+        ctx.fillRect(ARENA_X + 2, ARENA_Y + 2, ARENA_W - 4, PLAY_TOP - ARENA_Y);
+
+        ctx.strokeStyle = "#372650";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(ARENA_X + 2, PLAY_TOP);
+        ctx.lineTo(ARENA_X + ARENA_W - 2, PLAY_TOP);
+        ctx.stroke();
+
+        ctx.textAlign = "left";
+        ctx.fillStyle = COLOR_TEXT_HEADER;
+        ctx.font = "bold 15px Segoe UI";
+        let heroHud = `✦ Lunaria Lv.${player.level}   HP: ${player.hp}/${player.maxHp}   EXP: ${player.exp}/${player.expNeeded}`;
+        if (companion.active) heroHud += "  [✦ Sylph]";
+        ctx.fillText(heroHud, ARENA_X + 10, ARENA_Y + 20);
+
+        ctx.fillStyle = COLOR_COIN_GOLD;
+        ctx.fillText(`[ 🪙 Coins: ${player.gold}g ]`, ARENA_X + ARENA_W - 145, ARENA_Y + 20);
+      } else {
+        const mX = ARENA_X + 30, mY = ARENA_Y + 25, mW = ARENA_W - 60, mH = ARENA_H - 43;
+        ctx.fillStyle = "#261a3a";
+        ctx.fillRect(mX, mY, mW, mH);
+        ctx.strokeStyle = COLOR_STAR_GOLD;
+        ctx.lineWidth = 2;
+        ctx.strokeRect(mX, mY, mW, mH);
+
+        ctx.textAlign = "center";
+        ctx.fillStyle = COLOR_STAR_GOLD;
+        ctx.font = "bold 16px Segoe UI";
+        ctx.fillText("✦ STAR MAIDEN'S SANCTUARY ✦", mX + mW / 2, mY + 28);
+
+        ctx.fillStyle = COLOR_COIN_GOLD;
+        ctx.font = "14px Segoe UI";
+        ctx.fillText(`Your Coin Balance: ${player.gold} Gold`, mX + mW / 2, mY + 50);
+
+        ctx.textAlign = "left";
+        ctx.fillStyle = COLOR_TEXT_BODY;
+        ctx.font = "14px Segoe UI";
+        ctx.fillText("[1] Upgrade Sword (+7 ATK) - 35g", mX + 40, mY + 80);
+        ctx.fillText("[2] Enhance Armor (+30 Max HP) - 30g", mX + 40, mY + 110);
+        ctx.fillText("[3] Brew Health Potion (+1) - 20g", mX + 40, mY + 140);
+        ctx.fillText("[4] Summon / Empower Sylph - 50g", mX + 40, mY + 170);
+
+        ctx.textAlign = "center";
+        ctx.fillStyle = COLOR_TEXT_HEADER;
+        ctx.font = "bold 15px Segoe UI";
+        ctx.fillText("Press [ENTER] to Resume Battle", mX + mW / 2, mY + 205);
+      }
+
+      ctx.textAlign = "left";
+      ctx.fillStyle = COLOR_TEXT_LOG;
+      ctx.font = "14px Segoe UI";
+      const slashSec = (player.attackCooldown / 60).toFixed(1);
+      const novaSec  = (player.novaCooldown / 60).toFixed(1);
+      const raySec   = (player.rayCooldown / 60).toFixed(1);
+
+      const cdStr = `[SPACE] Slash: ${player.attackCooldown === 0 ? "READY" : slashSec + "s"} | [Q] Nova: ${player.level < 2 ? "Lv.2" : (player.novaCooldown === 0 ? "READY" : novaSec + "s")} | [R] Ray: ${player.level < 3 ? "Lv.3" : (player.rayCooldown === 0 ? "READY" : raySec + "s")} | [E] Potion (${player.potions})`;
+      ctx.fillText(cdStr, ARENA_X + 10, ARENA_Y + ARENA_H + 20);
+
+      const logBoxY = ARENA_Y + ARENA_H + 32;
+      ctx.fillStyle = "#0e0a16";
+      ctx.fillRect(ARENA_X, logBoxY, ARENA_W, 133);
+      ctx.strokeStyle = "#372850";
+      ctx.lineWidth = 1;
+      ctx.strokeRect(ARENA_X, logBoxY, ARENA_W, 133);
+
+      ctx.fillStyle = COLOR_TEXT_LOG;
+      ctx.font = "13px Consolas";
+      logLines.forEach((line, idx) => {
+        ctx.fillText(line, ARENA_X + 10, logBoxY + 18 + (idx * 16));
+      });
+
+      if (gameOver) {
+        ctx.fillStyle = COLOR_BTN_NORMAL;
+        ctx.fillRect(btnRestart.x, btnRestart.y, btnRestart.w, btnRestart.h);
+        ctx.strokeStyle = COLOR_BTN_BORDER;
+        ctx.strokeRect(btnRestart.x, btnRestart.y, btnRestart.w, btnRestart.h);
+
+        ctx.textAlign = "center";
+        ctx.fillStyle = COLOR_TEXT_BODY;
+        ctx.font = "bold 14px Segoe UI";
+        ctx.fillText("⟳ Reclaim Arena", btnRestart.x + btnRestart.w / 2, btnRestart.y + 26);
+      }
+    }
+
+    function loop() {
+      update();
+      render();
+      requestAnimationFrame(loop);
+    }
+
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
